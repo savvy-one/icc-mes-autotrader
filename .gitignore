@@ -1,14 +1,40 @@
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
+*.egg
 dist/
 build/
 .eggs/
+
+# Virtual environments
 venv/
 .venv/
+
+# Environment / secrets
 .env
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+
+# Database
 *.db
 *.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing / coverage
 .pytest_cache/
 .coverage
 htmlcov/
