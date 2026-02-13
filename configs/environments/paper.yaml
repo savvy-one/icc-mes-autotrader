@@ -1,0 +1,6 @@
+env: paper
+db_url: "sqlite:///icc_paper.db"
+log_level: INFO
+alerts:
+  console_enabled: true
+  email_enabled: false

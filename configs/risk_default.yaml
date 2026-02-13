@@ -1,0 +1,9 @@
+account_size: 500.0
+daily_loss_kill_pct: 0.20
+daily_loss_prekill_pct: 0.18
+max_trades_per_session: 2
+max_open_positions: 1
+cooldown_seconds: 300
+max_consecutive_losses: 2
+commission_per_side: 2.50
+slippage_ticks: 1
