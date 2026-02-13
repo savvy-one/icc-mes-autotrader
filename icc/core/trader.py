@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from icc.config import AppSettings
 from icc.constants import FSMState, OrderSide, OrderType
@@ -17,6 +17,7 @@ from icc.oms.position_tracker import PositionTracker
 
 if TYPE_CHECKING:
     from icc.alerts.base import AlertRouter
+    from icc.core.events import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class Trader:
         config: AppSettings,
         order_manager: OrderManager,
         alert_router: Optional[AlertRouter] = None,
+        event_bus: Optional[EventBus] = None,
     ):
         self.config = config
         self.fsm = ICCStateMachine()
@@ -38,11 +40,32 @@ class Trader:
         self.positions = PositionTracker()
         self.buffer = CandleBuffer(maxlen=200)
         self.alert_router = alert_router
+        self.event_bus = event_bus
         self._trade_count = 0
+
+    def _emit(self, event_type_str: str, data: dict[str, Any] | None = None) -> None:
+        """Emit an event if event_bus is available."""
+        if self.event_bus is None:
+            return
+        from icc.core.events import EventType
+        try:
+            et = EventType(event_type_str)
+        except ValueError:
+            et = EventType.ALERT
+        self.event_bus.emit(et, data or {})
 
     def on_candle(self, candle: Candle) -> None:
         """Single integration point for the full pipeline."""
         self.buffer.append(candle)
+
+        self._emit("candle", {
+            "timestamp": candle.timestamp.isoformat(),
+            "open": candle.open,
+            "high": candle.high,
+            "low": candle.low,
+            "close": candle.close,
+            "volume": candle.volume,
+        })
 
         # Check stop/target on open positions
         if not self.positions.is_flat:
@@ -76,8 +99,10 @@ class Trader:
         elif signal.action == "timeout":
             self.fsm.transition("timeout")
             self.strategy.reset()
+            self._emit("fsm_transition", {"state": self.fsm.state.value})
         else:
             self.fsm.transition(signal.action)
+            self._emit("fsm_transition", {"state": self.fsm.state.value})
 
     def _check_exit(self, candle: Candle) -> None:
         result = self.positions.check_stop_target(candle.high, candle.low)
@@ -96,6 +121,7 @@ class Trader:
         if not allowed:
             logger.info("Risk veto: %s", reason)
             self.fsm.transition("risk_block")
+            self._emit("risk_veto", {"reason": reason})
             if self.alert_router:
                 self.alert_router.send("risk_veto", f"Trade blocked: {reason}")
             return
@@ -120,11 +146,21 @@ class Trader:
             self.risk.record_trade()
             self._trade_count += 1
             logger.info("Trade entered: %s at %.2f", side.value, result.filled_price)
+            self._emit("entry", {
+                "side": side.value,
+                "entry_price": result.filled_price,
+                "stop_price": signal.stop_price,
+                "target_price": signal.target_price,
+            })
         else:
             logger.warning("Order rejected, resetting FSM")
             self.fsm.transition("invalidate")
 
     def _exit_position(self, exit_price: float, reason: str) -> None:
+        pos = self.positions.position
+        entry_price = pos.entry_price if pos else 0.0
+        side = pos.side.value if pos else "UNKNOWN"
+
         commission = self.risk.compute_commission(sides=2)
         pnl = self.positions.close_position(exit_price, commission)
         self.risk.update_pnl(pnl)
@@ -132,6 +168,16 @@ class Trader:
         self.fsm.transition("reset")
         self.strategy.reset()
         logger.info("Exit (%s): PnL=%.2f, daily=%.2f", reason, pnl, self.risk.state.daily_pnl)
+
+        self._emit("exit", {
+            "side": side,
+            "entry_price": entry_price,
+            "exit_price": exit_price,
+            "pnl": pnl,
+            "reason": reason,
+            "daily_pnl": self.risk.state.daily_pnl,
+        })
+
         if self.alert_router and pnl < 0:
             self.alert_router.send("trade_loss", f"Loss: ${pnl:.2f}")
 
@@ -140,8 +186,50 @@ class Trader:
         if not self.positions.is_flat:
             self._exit_position(candle.close, "kill_switch")
         self.fsm.force_state(FSMState.RISK_BLOCKED)
+        self._emit("kill_switch", {"daily_pnl": self.risk.state.daily_pnl})
         if self.alert_router:
             self.alert_router.send(
                 "kill_switch",
                 f"Kill switch activated! Daily PnL: ${self.risk.state.daily_pnl:.2f}",
             )
+
+    def get_snapshot(self) -> dict[str, Any]:
+        """Return current trader state as a serializable dict."""
+        pos = self.positions.position
+        last_candle = self.buffer.last
+        last_price = last_candle.close if last_candle else 0.0
+
+        snapshot: dict[str, Any] = {
+            "fsm_state": self.fsm.state.value,
+            "daily_pnl": self.risk.state.daily_pnl,
+            "trade_count": self._trade_count,
+            "is_flat": self.positions.is_flat,
+            "candle_count": len(self.buffer),
+            "risk_killed": self.risk.state.killed,
+        }
+
+        if pos is not None:
+            snapshot["position"] = {
+                "side": pos.side.value,
+                "entry_price": pos.entry_price,
+                "stop_price": pos.stop_price,
+                "target_price": pos.target_price,
+                "bars_held": pos.bars_held,
+                "unrealized_pnl": pos.unrealized_pnl(last_price),
+            }
+        else:
+            snapshot["position"] = None
+
+        if last_candle is not None:
+            snapshot["last_candle"] = {
+                "timestamp": last_candle.timestamp.isoformat(),
+                "open": last_candle.open,
+                "high": last_candle.high,
+                "low": last_candle.low,
+                "close": last_candle.close,
+                "volume": last_candle.volume,
+            }
+        else:
+            snapshot["last_candle"] = None
+
+        return snapshot

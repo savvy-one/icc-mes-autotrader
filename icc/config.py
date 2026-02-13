@@ -66,6 +66,12 @@ class BrokerConfig(BaseModel):
     base_url: str = ""
 
 
+class IBConfig(BaseModel):
+    socket_port: int = 7497  # 7497=paper, 7496=live
+    client_id: str = "100"
+    ip: str = "127.0.0.1"
+
+
 class AlertConfig(BaseModel):
     console_enabled: bool = True
     email_enabled: bool = False
@@ -87,11 +93,13 @@ class AppSettings(BaseSettings):
     env: Environment = Environment.BACKTEST
     db_url: str = "sqlite:///icc_trades.db"
     log_level: str = "INFO"
+    log_dir: str = "logs"
 
     strategy: StrategyConfig = Field(default_factory=StrategyConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     broker: BrokerConfig = Field(default_factory=BrokerConfig)
     alerts: AlertConfig = Field(default_factory=AlertConfig)
+    ib: IBConfig = Field(default_factory=IBConfig)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:

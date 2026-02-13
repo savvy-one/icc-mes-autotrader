@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ICC MES AutoTrader{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">ICC MES AutoTrader</div>
+        <div class="nav-links">
+            <a href="/" class="nav-link {% block nav_dashboard %}{% endblock %}">Dashboard</a>
+            <a href="/trades" class="nav-link {% block nav_trades %}{% endblock %}">Trades</a>
+            <a href="/config" class="nav-link {% block nav_config %}{% endblock %}">Config</a>
+        </div>
+        <div class="nav-status">
+            <span id="ws-status" class="status-dot disconnected"></span>
+            <span id="ws-label">Disconnected</span>
+        </div>
+    </nav>
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

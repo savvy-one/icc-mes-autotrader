@@ -1,7 +1,8 @@
-"""MarketFeed ABC, ReplayFeed, LiveFeed."""
+"""MarketFeed ABC, ReplayFeed, LiveFeed, SimulatedLiveFeed."""
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from typing import Iterator
 
@@ -58,3 +59,27 @@ class LiveFeed(MarketFeed):
 
     def __iter__(self) -> Iterator[Candle]:
         raise NotImplementedError("LiveFeed requires broker integration")
+
+
+class SimulatedLiveFeed(MarketFeed):
+    """Replays historical candles with a delay to simulate live streaming."""
+
+    def __init__(self, candles: list[Candle], delay: float = 1.0):
+        self._candles = candles
+        self._delay = delay
+        self._running = False
+
+    def start(self) -> None:
+        self._running = True
+
+    def stop(self) -> None:
+        self._running = False
+
+    def __iter__(self) -> Iterator[Candle]:
+        self.start()
+        for candle in self._candles:
+            if not self._running:
+                break
+            time.sleep(self._delay)
+            yield candle
+        self.stop()
