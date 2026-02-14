@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { WSStatus } from "./WSStatus";
+import { useAuthStore } from "@/stores/authStore";
 import type { WSReadyState } from "@/hooks/useWebSocket";
 
 const navLinks = [
@@ -13,6 +14,7 @@ const navLinks = [
 
 export function Header({ wsState }: { wsState: WSReadyState }) {
   const pathname = usePathname();
+  const logout = useAuthStore((s) => s.logout);
 
   return (
     <header className="flex items-center justify-between border-b border-zinc-700 bg-zinc-900 px-4 py-3">
@@ -36,7 +38,15 @@ export function Header({ wsState }: { wsState: WSReadyState }) {
           ))}
         </nav>
       </div>
-      <WSStatus state={wsState} />
+      <div className="flex items-center gap-4">
+        <WSStatus state={wsState} />
+        <button
+          onClick={logout}
+          className="text-xs text-zinc-500 transition-colors hover:text-zinc-200"
+        >
+          Logout
+        </button>
+      </div>
     </header>
   );
 }

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { AppShell } from "./AppShell";
 
 const mono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -21,7 +20,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${mono.variable} bg-zinc-950 font-mono text-zinc-100 antialiased`}>
-        <AppShell>{children}</AppShell>
+        {children}
       </body>
     </html>
   );

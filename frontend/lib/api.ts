@@ -1,15 +1,40 @@
 import { API_URL } from "./env";
 import type { SessionStatus, TradeRecord } from "./types";
 
+function getToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/(?:^|; )icc_token=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, init);
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: { ...authHeaders(), ...init?.headers },
+  });
   if (!res.ok) throw new Error(`API ${path}: ${res.status}`);
   return res.json() as Promise<T>;
 }
 
-async function postJSON<T>(path: string): Promise<T> {
-  return fetchJSON<T>(path, { method: "POST" });
+async function postJSON<T>(path: string, body?: unknown): Promise<T> {
+  return fetchJSON<T>(path, {
+    method: "POST",
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
 }
+
+// Auth
+export const login = (username: string, password: string) =>
+  postJSON<{ token: string; user: string; error?: string }>("/api/auth/login", { username, password });
+
+export const verifyToken = () =>
+  fetchJSON<{ valid: boolean; user?: string }>("/api/auth/verify");
 
 // Session controls
 export const startSimulated = () => postJSON<{ status: string }>("/api/session/start");

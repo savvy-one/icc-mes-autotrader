@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from jose import JWTError, jwt
+from pydantic import BaseModel
 
 from icc.core.events import EventBus
 from icc.web.trading_session import TradingSession
@@ -27,6 +31,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Auth Configuration ---
+_ADMIN_USER = os.environ.get("ICC_ADMIN_USER", "admin")
+_ADMIN_PASS = os.environ.get("ICC_ADMIN_PASS", "")
+_JWT_SECRET = os.environ.get("ICC_JWT_SECRET", "dev-secret-change-me")
+_JWT_ALGORITHM = "HS256"
+_JWT_EXPIRE_HOURS = 24
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
 
 # Shared state (can be replaced by init_shared_state for CLI auto-mode)
 event_bus = EventBus()
@@ -86,6 +103,38 @@ async def shutdown() -> None:
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# --- Auth Endpoints ---
+
+@app.post("/api/auth/login")
+async def api_auth_login(body: LoginRequest):
+    if not _ADMIN_PASS:
+        return {"error": "ICC_ADMIN_PASS not configured"}, 500
+    if body.username != _ADMIN_USER or body.password != _ADMIN_PASS:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=401, content={"error": "Invalid credentials"})
+    expire = datetime.now(timezone.utc) + timedelta(hours=_JWT_EXPIRE_HOURS)
+    token = jwt.encode(
+        {"sub": body.username, "exp": expire},
+        _JWT_SECRET,
+        algorithm=_JWT_ALGORITHM,
+    )
+    return {"token": token, "user": body.username}
+
+
+@app.get("/api/auth/verify")
+async def api_auth_verify(authorization: str = Header(default="")):
+    if not authorization.startswith("Bearer "):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=401, content={"valid": False})
+    token = authorization[7:]
+    try:
+        payload = jwt.decode(token, _JWT_SECRET, algorithms=[_JWT_ALGORITHM])
+        return {"valid": True, "user": payload.get("sub")}
+    except JWTError:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=401, content={"valid": False})
 
 
 # --- API Endpoints ---
