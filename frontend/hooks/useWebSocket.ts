@@ -111,6 +111,7 @@ export function useWebSocket() {
   );
 
   const connect = useCallback(() => {
+    if (typeof window === "undefined") return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     setReadyState("connecting");

@@ -1,11 +1,16 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { SessionControls } from "@/components/dashboard/SessionControls";
 import { FSMStatePanel } from "@/components/dashboard/FSMStatePanel";
 import { PnLPanel } from "@/components/dashboard/PnLPanel";
 import { PositionPanel } from "@/components/dashboard/PositionPanel";
-import { CandleChart } from "@/components/dashboard/CandleChart";
 import { EventLog } from "@/components/dashboard/EventLog";
+
+const CandleChart = dynamic(
+  () => import("@/components/dashboard/CandleChart").then((m) => m.CandleChart),
+  { ssr: false },
+);
 
 export default function DashboardPage() {
   return (
