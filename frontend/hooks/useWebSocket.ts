@@ -39,6 +39,7 @@ export function useWebSocket() {
 
       switch (type) {
         case "snapshot": {
+          if (!data || !("fsm_state" in data)) break; // no active session
           const snap = data as unknown as TradingSnapshot;
           updateSnapshot(snap);
           setSessionRunning(snap.running);
@@ -115,7 +116,16 @@ export function useWebSocket() {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     setReadyState("connecting");
-    const ws = new WebSocket(WS_URL);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(WS_URL);
+    } catch {
+      setReadyState("disconnected");
+      const delay = reconnectDelayRef.current;
+      reconnectTimerRef.current = setTimeout(connect, delay);
+      reconnectDelayRef.current = Math.min(delay * 2, MAX_RECONNECT_MS);
+      return;
+    }
     wsRef.current = ws;
 
     ws.onopen = () => {
