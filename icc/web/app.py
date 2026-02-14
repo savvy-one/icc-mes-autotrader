@@ -100,10 +100,10 @@ async def api_start_session():
 
 
 @app.post("/api/session/start-live")
-async def api_start_live_session():
+async def api_start_live_session(paper: bool = Query(default=True)):
     try:
-        session.start_live()
-        return {"status": "started", "mode": "live"}
+        session.start_live(paper=paper)
+        return {"status": "started", "mode": "paper" if paper else "live"}
     except RuntimeError as e:
         return {"status": "error", "message": str(e)}
 

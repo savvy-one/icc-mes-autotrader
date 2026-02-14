@@ -13,7 +13,8 @@ async function postJSON<T>(path: string): Promise<T> {
 
 // Session controls
 export const startSimulated = () => postJSON<{ status: string }>("/api/session/start");
-export const startLive = () => postJSON<{ status: string; mode?: string }>("/api/session/start-live");
+export const startLive = (paper = true) =>
+  postJSON<{ status: string; mode?: string }>(`/api/session/start-live?paper=${paper}`);
 export const stopSession = () => postJSON<{ status: string }>("/api/session/stop");
 export const killSession = () => postJSON<{ status: string }>("/api/session/kill");
 

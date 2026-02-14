@@ -123,8 +123,12 @@ class TradingSession:
             self.event_bus.emit(EventType.SESSION_STOPPED)
             logger.info("Trading session stopped")
 
-    def start_live(self) -> None:
-        """Start a LIVE trading session via Lumibot + Interactive Brokers."""
+    def start_live(self, paper: bool = True) -> None:
+        """Start a LIVE trading session via Lumibot + Interactive Brokers.
+
+        Args:
+            paper: If True use TWS paper port (7497), if False use live port (7496).
+        """
         if self.is_running:
             raise RuntimeError("Session already running")
 
@@ -140,8 +144,10 @@ class TradingSession:
         from icc.config import load_config
 
         self._config = load_config("live")
+        # Override IB port: 7497 = paper, 7496 = live/cash
+        socket_port = 7497 if paper else 7496
         ib_config = {
-            "SOCKET_PORT": self._config.ib.socket_port,
+            "SOCKET_PORT": socket_port,
             "CLIENT_ID": self._config.ib.client_id,
             "IP": self._config.ib.ip,
         }
@@ -157,13 +163,13 @@ class TradingSession:
         self._lumi_trader.add_strategy(strategy)
 
         self._running = True
-        self._mode = "live"
+        self._mode = "paper" if paper else "live"
         self._thread = threading.Thread(
             target=self._run_live, args=(self._lumi_trader,), daemon=True
         )
         self._thread.start()
-        self.event_bus.emit(EventType.SESSION_STARTED, {"mode": "live"})
-        logger.info("LIVE trading session started (port %s)", self._config.ib.socket_port)
+        self.event_bus.emit(EventType.SESSION_STARTED, {"mode": self._mode})
+        logger.info("%s trading session started (port %s)", self._mode.upper(), socket_port)
 
     def _run_live(self, lumi_trader) -> None:
         """Run Lumibot trader in background thread."""

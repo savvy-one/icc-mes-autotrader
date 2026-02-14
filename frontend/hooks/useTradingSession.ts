@@ -26,7 +26,7 @@ export function useTradingSession() {
     loading,
     error,
     startSimulated: () => exec(api.startSimulated),
-    startLive: () => exec(api.startLive),
+    startLive: (paper = true) => exec(() => api.startLive(paper)),
     stop: () => exec(api.stopSession),
     kill: () => exec(api.killSession),
   };
