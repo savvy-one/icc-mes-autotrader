@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: icc-autotrader-api
+    env: python
+    region: oregon
+    plan: starter
+    buildCommand: "pip install -e ."
+    startCommand: "uvicorn icc.web.app:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.10.0"
+      - key: ICC_ENV
+        value: live
+
+  - type: web
+    name: icc-autotrader
+    env: node
+    region: oregon
+    plan: starter
+    rootDir: frontend
+    buildCommand: "npm install && npm run build"
+    startCommand: "npm start"
+    healthCheckPath: /
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://icc-autotrader-api.onrender.com
+      - key: NEXT_PUBLIC_WS_URL
+        value: wss://icc-autotrader-api.onrender.com/ws

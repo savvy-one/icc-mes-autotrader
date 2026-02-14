@@ -4,13 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from starlette.requests import Request
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 
 from icc.core.events import EventBus
 from icc.web.trading_session import TradingSession
@@ -18,13 +14,19 @@ from icc.web.ws_manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
-WEB_DIR = Path(__file__).resolve().parent
-TEMPLATES_DIR = WEB_DIR / "templates"
-STATIC_DIR = WEB_DIR / "static"
-
 app = FastAPI(title="ICC MES AutoTrader", version="0.1.0")
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# CORS — allow Next.js frontend (dev + production)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://icc-autotrader.onrender.com",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Shared state (can be replaced by init_shared_state for CLI auto-mode)
 event_bus = EventBus()
@@ -79,26 +81,11 @@ async def shutdown() -> None:
         session.stop()
 
 
-# --- HTML Pages ---
+# --- Health Check ---
 
-@app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
-
-
-@app.get("/trades", response_class=HTMLResponse)
-async def trades_page(request: Request):
-    return templates.TemplateResponse("trades.html", {"request": request})
-
-
-@app.get("/config", response_class=HTMLResponse)
-async def config_page(request: Request):
-    from icc.config import load_config
-    config = load_config("paper")
-    return templates.TemplateResponse("config.html", {
-        "request": request,
-        "config": config.model_dump(),
-    })
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 # --- API Endpoints ---
@@ -147,6 +134,58 @@ async def api_scheduler_status():
     if _scheduler is None:
         return {"enabled": False, "message": "Scheduler not active (use --auto mode)"}
     return {"enabled": True, **_scheduler.get_status()}
+
+
+@app.get("/api/trades")
+async def api_trades(limit: int = Query(default=50, ge=1, le=500)):
+    """Return recent trade history from the database."""
+    from icc.db.engine import get_session
+    from icc.db.models import TradeRecord
+
+    try:
+        db = get_session()
+        trades = (
+            db.query(TradeRecord)
+            .order_by(TradeRecord.entry_time.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "id": t.id,
+                "session_id": t.session_id,
+                "side": t.side,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "stop_price": t.stop_price,
+                "target_price": t.target_price,
+                "quantity": t.quantity,
+                "pnl": t.pnl,
+                "commission": t.commission,
+                "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+                "exit_time": t.exit_time.isoformat() if t.exit_time else None,
+                "exit_reason": t.exit_reason,
+            }
+            for t in trades
+        ]
+    except Exception as e:
+        logger.warning("Failed to fetch trades: %s", e)
+        return []
+    finally:
+        db.close()
+
+
+@app.get("/api/config")
+async def api_config():
+    """Return merged application configuration as JSON."""
+    from icc.config import load_config
+
+    config = load_config("paper")
+    dump = config.model_dump()
+    # Strip sensitive broker fields
+    dump.get("broker", {}).pop("api_key", None)
+    dump.get("alerts", {}).pop("smtp_pass", None)
+    return dump
 
 
 # --- WebSocket ---
