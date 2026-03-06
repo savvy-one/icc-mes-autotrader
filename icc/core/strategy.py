@@ -34,11 +34,12 @@ class StrategyEngine:
 
     def __init__(self, config: StrategyConfig):
         self.config = config
-        # Track correction context
+        # Track indication + correction context
         self._impulse_high: float | None = None
         self._impulse_low: float | None = None
         self._correction_high: float | None = None
         self._correction_low: float | None = None
+        self._indication_bar_count: int = 0
         self._correction_bar_count: int = 0
 
     def reset(self) -> None:
@@ -46,6 +47,7 @@ class StrategyEngine:
         self._impulse_low = None
         self._correction_high = None
         self._correction_low = None
+        self._indication_bar_count = 0
         self._correction_bar_count = 0
 
     def evaluate(self, state: FSMState, buf: CandleBuffer) -> Signal:
@@ -85,6 +87,7 @@ class StrategyEngine:
                 and volume_filter(volumes, self.config.volume_avg_period)):
             self._impulse_high = max(highs[-3:])
             self._impulse_low = min(lows[-3:])
+            self._indication_bar_count = 0
             return Signal(action="indication_up", reason="Bullish indication confirmed")
 
         # Check DOWN indication
@@ -94,6 +97,7 @@ class StrategyEngine:
                 and volume_filter(volumes, self.config.volume_avg_period)):
             self._impulse_high = max(highs[-3:])
             self._impulse_low = min(lows[-3:])
+            self._indication_bar_count = 0
             return Signal(action="indication_down", reason="Bearish indication confirmed")
 
         return Signal(action="none", reason="No indication")
@@ -101,6 +105,10 @@ class StrategyEngine:
     def _check_correction_up(self, buf: CandleBuffer) -> Signal:
         if self._impulse_high is None or self._impulse_low is None:
             return Signal(action="none", reason="No impulse reference")
+
+        self._indication_bar_count += 1
+        if self._indication_bar_count > self.config.indication_max_bars:
+            return Signal(action="timeout", reason="Indication exceeded max bars")
 
         candle = buf.last
         if candle is None:
@@ -118,6 +126,10 @@ class StrategyEngine:
     def _check_correction_down(self, buf: CandleBuffer) -> Signal:
         if self._impulse_high is None or self._impulse_low is None:
             return Signal(action="none", reason="No impulse reference")
+
+        self._indication_bar_count += 1
+        if self._indication_bar_count > self.config.indication_max_bars:
+            return Signal(action="timeout", reason="Indication exceeded max bars")
 
         candle = buf.last
         if candle is None:
@@ -144,11 +156,7 @@ class StrategyEngine:
         if candle is None:
             return Signal(action="none")
 
-        # Update correction extremes
-        if candle.high > self._correction_high:
-            self._correction_high = candle.high
-        if candle.low < self._correction_low:
-            self._correction_low = candle.low
+        # Correction extremes are frozen at entry — do NOT update them here
 
         volumes = buf.volumes()
         if (candle.close > self._correction_high
@@ -170,10 +178,7 @@ class StrategyEngine:
         if candle is None:
             return Signal(action="none")
 
-        if candle.high > self._correction_high:
-            self._correction_high = candle.high
-        if candle.low < self._correction_low:
-            self._correction_low = candle.low
+        # Correction extremes are frozen at entry — do NOT update them here
 
         volumes = buf.volumes()
         if (candle.close < self._correction_low

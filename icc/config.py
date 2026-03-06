@@ -42,6 +42,7 @@ class StrategyConfig(BaseModel):
     continuation_volume_period: int = CONTINUATION_VOLUME_PERIOD
     fib_min: float = FIB_RETRACEMENT_MIN
     fib_max: float = FIB_RETRACEMENT_MAX
+    indication_max_bars: int = 20
     correction_max_bars: int = CORRECTION_MAX_BARS
     stop_atr_mult: float = STOP_ATR_MULTIPLIER
     target_atr_mult: float = TARGET_ATR_MULTIPLIER

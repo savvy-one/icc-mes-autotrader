@@ -16,6 +16,8 @@ from icc.oms.orders import Order
 from icc.oms.position_tracker import PositionTracker
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session as DBSession
+
     from icc.alerts.base import AlertRouter
     from icc.core.events import EventBus
 
@@ -31,6 +33,8 @@ class Trader:
         order_manager: OrderManager,
         alert_router: Optional[AlertRouter] = None,
         event_bus: Optional[EventBus] = None,
+        db_session: Optional[DBSession] = None,
+        session_id: Optional[str] = None,
     ):
         self.config = config
         self.fsm = ICCStateMachine()
@@ -41,7 +45,10 @@ class Trader:
         self.buffer = CandleBuffer(maxlen=200)
         self.alert_router = alert_router
         self.event_bus = event_bus
+        self._db = db_session
+        self._session_id = session_id or "default"
         self._trade_count = 0
+        self._open_trade_id: Optional[int] = None
 
     def _emit(self, event_type_str: str, data: dict[str, Any] | None = None) -> None:
         """Emit an event if event_bus is available."""
@@ -152,6 +159,21 @@ class Trader:
                 "stop_price": signal.stop_price,
                 "target_price": signal.target_price,
             })
+            # Persist to DB
+            if self._db is not None:
+                try:
+                    from icc.db.repo import create_trade
+                    rec = create_trade(
+                        self._db,
+                        session_id=self._session_id,
+                        side=side.value,
+                        entry_price=result.filled_price,
+                        stop_price=signal.stop_price or 0.0,
+                        target_price=signal.target_price or 0.0,
+                    )
+                    self._open_trade_id = rec.id
+                except Exception as e:
+                    logger.error("Failed to persist trade entry: %s", e)
         else:
             logger.warning("Order rejected, resetting FSM")
             self.fsm.transition("invalidate")
@@ -177,6 +199,14 @@ class Trader:
             "reason": reason,
             "daily_pnl": self.risk.state.daily_pnl,
         })
+        # Persist exit to DB
+        if self._db is not None and self._open_trade_id is not None:
+            try:
+                from icc.db.repo import close_trade
+                close_trade(self._db, self._open_trade_id, exit_price, pnl, reason)
+                self._open_trade_id = None
+            except Exception as e:
+                logger.error("Failed to persist trade exit: %s", e)
 
         if self.alert_router and pnl < 0:
             self.alert_router.send("trade_loss", f"Loss: ${pnl:.2f}")

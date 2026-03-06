@@ -96,11 +96,20 @@ class TradingSession:
         alert_router = AlertRouter()
         alert_router.add_channel(WebSocketAlertChannel(self.event_bus))
 
+        # Set up DB session for trade persistence
+        from uuid import uuid4
+        from icc.db.engine import get_session as get_db_session, init_db
+        init_db(self._config.db_url)
+        db_session = get_db_session(self._config.db_url)
+        session_id = "sim-" + uuid4().hex[:8]
+
         self._trader = Trader(
             config=self._config,
             order_manager=oms,
             alert_router=alert_router,
             event_bus=self.event_bus,
+            db_session=db_session,
+            session_id=session_id,
         )
 
         self._running = True
@@ -219,11 +228,14 @@ class TradingSession:
 
     def _flatten_positions(self) -> None:
         """Flatten positions at both ICC and broker level."""
-        # ICC internal flatten
-        if self._trader and not self._trader.positions.is_flat:
-            last = self._trader.buffer.last
+        # ICC internal flatten — check both simulated and live trader
+        trader = self._trader
+        if trader is None and self._lumi_strategy is not None:
+            trader = getattr(self._lumi_strategy, "icc_trader", None)
+        if trader and not trader.positions.is_flat:
+            last = trader.buffer.last
             if last:
-                self._trader._exit_position(last.close, "session_flatten")
+                trader._exit_position(last.close, "session_flatten")
                 logger.info("ICC internal position flattened")
 
         # Lumibot broker-level flatten
@@ -263,9 +275,13 @@ class TradingSession:
 
     def get_snapshot(self) -> dict:
         """Get current trader snapshot."""
-        if self._trader is None:
+        trader = self._trader
+        # In live mode, the Trader lives inside the Lumibot strategy
+        if trader is None and self._lumi_strategy is not None:
+            trader = getattr(self._lumi_strategy, "icc_trader", None)
+        if trader is None:
             return {"status": "no_session"}
-        snapshot = self._trader.get_snapshot()
+        snapshot = trader.get_snapshot()
         snapshot["session_running"] = self.is_running
         snapshot["mode"] = self._mode
         return snapshot

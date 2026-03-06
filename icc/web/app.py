@@ -25,6 +25,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
+        "http://localhost:3001",
         "https://icc-autotrader.onrender.com",
     ],
     allow_credentials=True,
@@ -50,6 +51,7 @@ event_bus = EventBus()
 ws_manager = ConnectionManager()
 session = TradingSession(event_bus)
 _scheduler = None  # Optional: set by init_shared_state in auto mode
+_db_url: str | None = None  # Set by init_shared_state for correct DB
 
 # Background task for event relay
 _relay_task: asyncio.Task | None = None
@@ -59,12 +61,14 @@ def init_shared_state(
     shared_event_bus: EventBus,
     shared_session: TradingSession,
     shared_scheduler=None,
+    db_url: str | None = None,
 ) -> None:
     """Replace module-level shared state so CLI auto-mode and web dashboard share instances."""
-    global event_bus, session, _scheduler
+    global event_bus, session, _scheduler, _db_url
     event_bus = shared_event_bus
     session = shared_session
     _scheduler = shared_scheduler
+    _db_url = db_url
 
 
 async def _event_relay() -> None:
@@ -110,7 +114,8 @@ async def health():
 @app.post("/api/auth/login")
 async def api_auth_login(body: LoginRequest):
     if not _ADMIN_PASS:
-        return {"error": "ICC_ADMIN_PASS not configured"}, 500
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=500, content={"error": "ICC_ADMIN_PASS not configured"})
     if body.username != _ADMIN_USER or body.password != _ADMIN_PASS:
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=401, content={"error": "Invalid credentials"})
@@ -192,7 +197,7 @@ async def api_trades(limit: int = Query(default=50, ge=1, le=500)):
     from icc.db.models import TradeRecord
 
     try:
-        db = get_session()
+        db = get_session(_db_url) if _db_url else get_session()
         trades = (
             db.query(TradeRecord)
             .order_by(TradeRecord.entry_time.desc())
@@ -210,6 +215,7 @@ async def api_trades(limit: int = Query(default=50, ge=1, le=500)):
                 "target_price": t.target_price,
                 "quantity": t.quantity,
                 "pnl": t.pnl,
+                "gross_pnl": (t.pnl + t.commission) if t.pnl is not None else None,
                 "commission": t.commission,
                 "entry_time": t.entry_time.isoformat() if t.entry_time else None,
                 "exit_time": t.exit_time.isoformat() if t.exit_time else None,

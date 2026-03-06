@@ -63,6 +63,7 @@ export interface TradeRecord {
   target_price: number;
   quantity: number;
   pnl: number | null;
+  gross_pnl: number | null;
   commission: number;
   entry_time: string | null;
   exit_time: string | null;

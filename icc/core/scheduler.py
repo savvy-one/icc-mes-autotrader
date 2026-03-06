@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Session window defaults (ET)
 DEFAULT_OPEN_HOUR = 9
 DEFAULT_OPEN_MINUTE = 30
-DEFAULT_CLOSE_HOUR = 11
+DEFAULT_CLOSE_HOUR = 15
 DEFAULT_CLOSE_MINUTE = 0
 
 
@@ -26,7 +26,7 @@ class SessionScheduler:
 
     Runs two weekday cron jobs in US/Eastern timezone:
     - session_open: calls session.start_live() at 9:30 ET
-    - session_close: calls session.flatten_and_stop() at 11:00 ET
+    - session_close: calls session.flatten_and_stop() at 12:00 ET
     """
 
     def __init__(
@@ -56,6 +56,8 @@ class SessionScheduler:
             ),
             id="session_open",
             replace_existing=True,
+            misfire_grace_time=3600,  # Allow up to 1 hour late
+            coalesce=True,
         )
         self._scheduler.add_job(
             self._session_close,
@@ -67,6 +69,8 @@ class SessionScheduler:
             ),
             id="session_close",
             replace_existing=True,
+            misfire_grace_time=3600,
+            coalesce=True,
         )
         self._scheduler.start()
         logger.info(

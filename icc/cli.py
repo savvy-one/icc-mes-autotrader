@@ -231,7 +231,7 @@ def _run_auto_live(headless: bool = False, web_port: int = 8000):
 
     console.print(Panel(
         "ICC Autonomous Trading Mode\n"
-        f"Scheduler: open=09:30 ET, close=11:00 ET (weekdays)\n"
+        f"Scheduler: open=09:30 ET, close=15:00 ET (weekdays)\n"
         f"Watchdog: warn=3min, restart=5min\n"
         f"Logs: {config.log_dir}/\n"
         + (f"Dashboard: http://127.0.0.1:{web_port}\n" if not headless else "Headless mode (no dashboard)\n")
@@ -272,7 +272,7 @@ def _run_auto_live(headless: bool = False, web_port: int = 8000):
     else:
         # Share state with web app, then start uvicorn
         from icc.web.app import init_shared_state
-        init_shared_state(event_bus, session, scheduler)
+        init_shared_state(event_bus, session, scheduler, db_url=config.db_url)
 
         import uvicorn
         uvicorn.run(

@@ -4,7 +4,8 @@ volume_avg_period: 20
 continuation_volume_period: 15
 fib_min: 0.382
 fib_max: 0.618
-correction_max_bars: 10
-stop_atr_mult: 1.5
-target_atr_mult: 2.0
-trade_timeout_bars: 5
+indication_max_bars: 20
+correction_max_bars: 20
+stop_atr_mult: 2.5
+target_atr_mult: 1.2
+trade_timeout_bars: 15
