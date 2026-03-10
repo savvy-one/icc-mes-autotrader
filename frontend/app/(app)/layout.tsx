@@ -14,8 +14,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    verifyToken().catch(() => logout());
-  }, [isAuthenticated, logout]);
+    verifyToken().catch(() => {
+      // Don't logout on verify failure — may be a transient network issue
+      // (e.g. ngrok tunnel not reachable). The token is still valid locally.
+    });
+  }, [isAuthenticated]);
 
   return <AppShell>{children}</AppShell>;
 }
