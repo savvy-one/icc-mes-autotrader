@@ -15,7 +15,7 @@ function authHeaders(): Record<string, string> {
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: { ...authHeaders(), ...init?.headers },
+    headers: { "ngrok-skip-browser-warning": "1", ...authHeaders(), ...init?.headers },
   });
   if (!res.ok) throw new Error(`API ${path}: ${res.status}`);
   return res.json() as Promise<T>;
