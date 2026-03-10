@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 import threading
 import time
@@ -32,6 +33,7 @@ class Watchdog:
         self._session = session
         self._last_candle_time: float = 0.0
         self._restart_count = 0
+        self._restart_date: datetime.date = datetime.date.today()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._warned = False
@@ -40,6 +42,7 @@ class Watchdog:
         """Start the watchdog monitoring thread."""
         self._last_candle_time = time.time()
         self._restart_count = 0
+        self._restart_date = datetime.date.today()
         self._warned = False
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
@@ -81,11 +84,17 @@ class Watchdog:
 
     def _attempt_restart(self) -> None:
         """Attempt to restart the trading session after prolonged silence."""
+        today = datetime.date.today()
+        if today != self._restart_date:
+            self._restart_count = 0
+            self._restart_date = today
+
         if self._restart_count >= MAX_RESTARTS_PER_DAY:
             logger.error(
-                "Watchdog: max restarts (%d) reached for today — not restarting",
+                "Watchdog: max restarts (%d) reached for today — stopping watchdog",
                 MAX_RESTARTS_PER_DAY,
             )
+            self._stop_event.set()
             return
 
         self._restart_count += 1
