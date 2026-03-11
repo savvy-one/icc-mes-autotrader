@@ -89,7 +89,9 @@ class Trader:
         # Update risk engine position count
         self.risk.set_open_positions(self.positions.open_position_count)
 
-        # Check kill switch
+        # Check kill switch (state.killed avoids re-logging every candle)
+        if self.risk.state.killed:
+            return
         if self.risk.check_kill_switch():
             self._handle_kill_switch(candle)
             return
