@@ -16,6 +16,8 @@ const stateColors: Record<FSMState, string> = {
   IN_TRADE_DOWN: "text-red-400",
   EXIT: "text-orange-400",
   RISK_BLOCKED: "text-red-500",
+  ORB_BUILDING: "text-amber-400",
+  ORB_ARMED: "text-amber-300",
 };
 
 export function FSMStatePanel() {

@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useSessionStore } from "@/stores/sessionStore";
 import * as api from "@/lib/api";
+import type { InstrumentType, OptionUnderlying, StrategyName } from "@/lib/types";
 
 export function useTradingSession() {
   const { loading, error, setLoading, setError } = useSessionStore();
@@ -25,8 +26,15 @@ export function useTradingSession() {
   return {
     loading,
     error,
-    startSimulated: () => exec(api.startSimulated),
-    startLive: (paper = true) => exec(() => api.startLive(paper)),
+    startSimulated: (instrumentType: InstrumentType = "FUTURES", strategy: StrategyName = "ICC") =>
+      exec(() => api.startSimulated(instrumentType, strategy)),
+    startLive: (
+      paper = true,
+      instrumentType: InstrumentType = "FUTURES",
+      optionUnderlying: OptionUnderlying = "MES",
+      strategy: StrategyName = "ICC",
+      tickers?: string[],
+    ) => exec(() => api.startLive(paper, instrumentType, optionUnderlying, strategy, tickers)),
     stop: () => exec(api.stopSession),
     kill: () => exec(api.killSession),
   };

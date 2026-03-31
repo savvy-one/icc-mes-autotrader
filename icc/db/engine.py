@@ -7,32 +7,33 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from icc.db.models import Base
 
-_engine: Engine | None = None
-_session_factory: sessionmaker[Session] | None = None
+# Support multiple engines keyed by URL
+_engines: dict[str, Engine] = {}
+_session_factories: dict[str, sessionmaker[Session]] = {}
+
+_DEFAULT_URL = "sqlite:///icc_trades.db"
 
 
-def get_engine(db_url: str = "sqlite:///icc_trades.db") -> Engine:
-    global _engine
-    if _engine is None:
-        _engine = create_engine(db_url, echo=False)
-    return _engine
+def get_engine(db_url: str = _DEFAULT_URL) -> Engine:
+    if db_url not in _engines:
+        _engines[db_url] = create_engine(db_url, echo=False)
+    return _engines[db_url]
 
 
-def get_session(db_url: str = "sqlite:///icc_trades.db") -> Session:
-    global _session_factory
-    if _session_factory is None:
-        _session_factory = sessionmaker(bind=get_engine(db_url))
-    return _session_factory()
+def get_session(db_url: str = _DEFAULT_URL) -> Session:
+    if db_url not in _session_factories:
+        _session_factories[db_url] = sessionmaker(bind=get_engine(db_url))
+    return _session_factories[db_url]()
 
 
-def init_db(db_url: str = "sqlite:///icc_trades.db") -> None:
+def init_db(db_url: str = _DEFAULT_URL) -> None:
     """Create all tables."""
     engine = get_engine(db_url)
     Base.metadata.create_all(engine)
 
 
 def reset_engine() -> None:
-    """Reset global engine (for testing)."""
-    global _engine, _session_factory
-    _engine = None
-    _session_factory = None
+    """Reset all engines (for testing)."""
+    global _engines, _session_factories
+    _engines = {}
+    _session_factories = {}

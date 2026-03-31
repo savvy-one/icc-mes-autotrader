@@ -1,6 +1,6 @@
 env: live
 db_url: "sqlite:///icc_live.db"
-log_level: WARNING
+log_level: INFO
 alerts:
   console_enabled: true
   email_enabled: true

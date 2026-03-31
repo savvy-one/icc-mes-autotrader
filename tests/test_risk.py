@@ -8,7 +8,10 @@ from icc.core.risk import RiskEngine
 
 @pytest.fixture
 def engine():
-    return RiskEngine(RiskConfig())
+    return RiskEngine(RiskConfig(
+        account_size=500.0,
+        max_trades_per_session=2,
+    ))
 
 
 class TestRiskEngine:

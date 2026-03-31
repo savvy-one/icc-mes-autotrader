@@ -47,6 +47,10 @@ class StrategyConfig(BaseModel):
     stop_atr_mult: float = STOP_ATR_MULTIPLIER
     target_atr_mult: float = TARGET_ATR_MULTIPLIER
     trade_timeout_bars: int = TRADE_TIMEOUT_BARS
+    min_atr_pct: float = 0.05
+    trailing_stop_enabled: bool = True
+    breakeven_atr_mult: float = 1.0
+    trail_atr_mult: float = 1.0
 
 
 class RiskConfig(BaseModel):
@@ -59,6 +63,8 @@ class RiskConfig(BaseModel):
     max_consecutive_losses: int = MAX_CONSECUTIVE_LOSSES
     commission_per_side: float = COMMISSION_PER_SIDE
     slippage_ticks: int = SLIPPAGE_TICKS
+    large_loss_threshold: float = 100.0  # Dollar amount that counts as a "large loss"
+    large_loss_cooldown_seconds: int = 600  # 10-minute cooldown after large loss
 
 
 class BrokerConfig(BaseModel):
@@ -71,6 +77,65 @@ class IBConfig(BaseModel):
     socket_port: int = 7497  # 7497=paper, 7496=live
     client_id: str = "100"
     ip: str = "127.0.0.1"
+
+
+class SettlementConfig(BaseModel):
+    enabled: bool = True
+    safety_buffer: float = 10.0
+    tranches: list[dict] = Field(default_factory=lambda: [
+        {"name": "morning", "start_hour": 9, "start_minute": 30, "budget": 1250.0},
+        {"name": "afternoon", "start_hour": 13, "start_minute": 0, "budget": 1250.0},
+    ])
+    max_trades_per_tranche: int = 4
+
+
+class ResearchConfig(BaseModel):
+    enabled: bool = True
+    min_confidence: float = 0.4
+    calendar_file: str = "data/econ_calendar.json"
+    atr_lookback: int = 100
+    atr_extreme_pct: float = 0.90
+    atr_low_pct: float = 0.20
+    opening_minutes: int = 30
+    closing_minutes: int = 30
+    opening_mult: float = 0.8
+    closing_mult: float = 0.7
+    low_vol_mult: float = 0.7
+    high_vol_mult: float = 0.6
+    extreme_vol_mult: float = 0.3
+    counter_vwap_mult: float = 0.8
+
+
+class OptionsConfig(BaseModel):
+    instrument_type: str = "FUTURES"  # FUTURES or OPTIONS
+    underlying: str = "MES"  # MES or SPX
+    tickers: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "NVDA", "AAPL", "AMZN", "TSLA", "META", "MSFT"])
+    strike_mode: str = "ATM"  # ATM, OTM_1, DELTA
+    expiration_mode: str = "MONTHLY"  # ZERO_DTE, WEEKLY, MONTHLY
+    premium_stop_pct: float = 0.70  # 70% — wider for 0DTE options with fast theta decay
+    expiration_guard_minutes: int = 15
+    quantity: int = 1
+    option_commission_per_side: float = 1.50
+    cash_settled_underlyings: list[str] = ["SPX"]  # No T+1 delay for these
+    max_premium: float = 2.00  # Reject contracts with premium > $2.00 (limits risk to $200/contract)
+    otm_fallback: bool = True  # If ATM premium > max_premium, try OTM_1 strike
+
+
+class ORBConfig(BaseModel):
+    range_minutes: int = 15
+    target_multiplier: float = 1.5
+    stop_mode: str = "opposite"  # "opposite" or "midpoint"
+    min_range_pct: float = 0.3  # min range height as % of price (0.3% = $1.97 on SPY ~$655)
+    confirmation_bars: int = 2  # require N consecutive closes beyond range before entering
+    volume_confirmation: bool = False
+    volume_threshold_pct: float = 120.0
+    max_wait_minutes: int = 60
+    reentry_allowed: bool = True
+    trade_timeout_bars: int = 90  # longer than ICC's 25 — ORB targets are wider
+    min_atr_pct: float = 0.05  # percentage of price (0.05% = works across all price levels)
+    trailing_stop_enabled: bool = True
+    breakeven_range_pct: float = 0.5
+    trail_range_pct: float = 0.5
 
 
 class AlertConfig(BaseModel):
@@ -96,11 +161,17 @@ class AppSettings(BaseSettings):
     log_level: str = "INFO"
     log_dir: str = "logs"
 
+    strategy_name: str = "ICC"  # "ICC" or "ORB"
+
     strategy: StrategyConfig = Field(default_factory=StrategyConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     broker: BrokerConfig = Field(default_factory=BrokerConfig)
     alerts: AlertConfig = Field(default_factory=AlertConfig)
     ib: IBConfig = Field(default_factory=IBConfig)
+    settlement: SettlementConfig = Field(default_factory=SettlementConfig)
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
+    options: OptionsConfig = Field(default_factory=OptionsConfig)
+    orb: ORBConfig = Field(default_factory=ORBConfig)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -122,15 +193,21 @@ def _load_yaml(path: Path) -> dict:
 
 
 def load_config(env: Optional[str] = None) -> AppSettings:
-    """Load config by merging: defaults < strategy_default.yaml < risk_default.yaml < environment yaml."""
+    """Load config by merging: defaults < strategy_default.yaml < risk_default.yaml < options_default.yaml < environment yaml."""
     strategy_yaml = _load_yaml(CONFIGS_DIR / "strategy_default.yaml")
     risk_yaml = _load_yaml(CONFIGS_DIR / "risk_default.yaml")
+    options_yaml = _load_yaml(CONFIGS_DIR / "options_default.yaml")
+    orb_yaml = _load_yaml(CONFIGS_DIR / "orb_default.yaml")
 
     merged: dict = {}
     if strategy_yaml:
         merged = _deep_merge(merged, {"strategy": strategy_yaml})
     if risk_yaml:
         merged = _deep_merge(merged, {"risk": risk_yaml})
+    if options_yaml:
+        merged = _deep_merge(merged, {"options": options_yaml})
+    if orb_yaml:
+        merged = _deep_merge(merged, {"orb": orb_yaml})
 
     settings = AppSettings()
     target_env = env or settings.env.value

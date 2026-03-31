@@ -28,7 +28,7 @@ def create_trade(db: Session, **kwargs) -> TradeRecord:
 
 
 def close_trade(db: Session, trade_id: int, exit_price: float, pnl: float,
-                exit_reason: str) -> TradeRecord:
+                exit_reason: str, option_exit_premium: float | None = None) -> TradeRecord:
     record = db.get(TradeRecord, trade_id)
     if record is None:
         raise ValueError(f"Trade {trade_id} not found")
@@ -36,6 +36,8 @@ def close_trade(db: Session, trade_id: int, exit_price: float, pnl: float,
     record.pnl = pnl
     record.exit_time = datetime.utcnow()
     record.exit_reason = exit_reason
+    if option_exit_premium is not None:
+        record.option_exit_premium = option_exit_premium
     db.commit()
     db.refresh(record)
     return record

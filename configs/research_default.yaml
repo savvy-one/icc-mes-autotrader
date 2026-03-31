@@ -1,0 +1,16 @@
+# Research Agent Configuration
+research:
+  enabled: true
+  min_confidence: 0.4
+  calendar_file: "data/econ_calendar.json"
+  atr_lookback: 100
+  atr_extreme_pct: 0.90
+  atr_low_pct: 0.20
+  opening_minutes: 30
+  closing_minutes: 30
+  opening_mult: 0.8
+  closing_mult: 0.7
+  low_vol_mult: 0.7
+  high_vol_mult: 0.6
+  extreme_vol_mult: 0.3
+  counter_vwap_mult: 0.8

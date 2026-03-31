@@ -6,6 +6,7 @@ import { formatPrice, formatPnL } from "@/lib/formatters";
 
 export function PositionPanel() {
   const position = useTradingStore((s) => s.position);
+  const optionContract = useTradingStore((s) => s.optionContract);
 
   if (!position || position.side === "FLAT") {
     return (
@@ -28,6 +29,22 @@ export function PositionPanel() {
       >
         {position.side} @ {formatPrice(position.entry_price)}
       </p>
+
+      {/* Option contract details */}
+      {optionContract && (
+        <div className="mt-1 text-xs text-purple-400">
+          {optionContract.underlying}{" "}
+          {optionContract.strike}{" "}
+          <span className={optionContract.option_type === "CALL" ? "text-green-400" : "text-red-400"}>
+            {optionContract.option_type}
+          </span>
+          {" "}exp {optionContract.expiration}
+          <span className="ml-2 text-zinc-500">
+            premium ${optionContract.premium.toFixed(2)}
+          </span>
+        </div>
+      )}
+
       <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-zinc-400">
         <div>
           <span className="block text-zinc-500">Stop</span>

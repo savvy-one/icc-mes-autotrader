@@ -27,10 +27,19 @@ class Watchdog:
     - Warns after WARN_AFTER seconds of silence
     - Attempts session restart after RESTART_AFTER seconds
     - Limits restart attempts to MAX_RESTARTS_PER_DAY per session day
+    - Only monitors during trading hours (9:30 AM - 4:00 PM ET, weekdays)
     """
 
-    def __init__(self, session: TradingSession) -> None:
+    def __init__(self, session: TradingSession,
+                 instrument_type: str = "FUTURES",
+                 option_underlying: str = "MES",
+                 strategy_name: str = "ICC",
+                 tickers: list[str] | None = None) -> None:
         self._session = session
+        self._instrument_type = instrument_type
+        self._option_underlying = option_underlying
+        self._strategy_name = strategy_name
+        self._tickers = tickers
         self._last_candle_time: float = 0.0
         self._restart_count = 0
         self._restart_date: datetime.date = datetime.date.today()
@@ -62,6 +71,16 @@ class Watchdog:
         self._last_candle_time = time.time()
         self._warned = False
 
+    def _is_trading_hours(self) -> bool:
+        """Check if we're within trading hours (9:30 AM - 4:00 PM ET, weekdays)."""
+        import pytz
+        et = pytz.timezone("US/Eastern")
+        now_et = datetime.datetime.now(et)
+        if now_et.weekday() > 4:  # Weekend
+            return False
+        t = now_et.time()
+        return datetime.time(9, 30) <= t <= datetime.time(16, 0)
+
     def _monitor_loop(self) -> None:
         """Check candle freshness every CHECK_INTERVAL seconds."""
         while not self._stop_event.is_set():
@@ -70,6 +89,10 @@ class Watchdog:
                 break
 
             if not self._session.is_running:
+                continue
+
+            # Don't monitor or restart outside trading hours
+            if not self._is_trading_hours():
                 continue
 
             silence = time.time() - self._last_candle_time
@@ -90,11 +113,12 @@ class Watchdog:
             self._restart_date = today
 
         if self._restart_count >= MAX_RESTARTS_PER_DAY:
-            logger.error(
-                "Watchdog: max restarts (%d) reached for today — stopping watchdog",
-                MAX_RESTARTS_PER_DAY,
-            )
-            self._stop_event.set()
+            if not self._warned:
+                logger.error(
+                    "Watchdog: max restarts (%d) reached for today — not restarting",
+                    MAX_RESTARTS_PER_DAY,
+                )
+                self._warned = True
             return
 
         self._restart_count += 1
@@ -108,7 +132,12 @@ class Watchdog:
             self._session.stop()
             self._stop_event.wait(5.0)  # pause before restart
             if not self._stop_event.is_set():
-                self._session.start_live()
+                self._session.start_live(
+                    instrument_type=self._instrument_type,
+                    option_underlying=self._option_underlying,
+                    strategy_name=self._strategy_name,
+                    tickers=self._tickers,
+                )
                 self._last_candle_time = time.time()
                 self._warned = False
                 logger.info("Watchdog: session restarted successfully")

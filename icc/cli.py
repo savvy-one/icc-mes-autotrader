@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import signal as _signal
+import time as _time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -16,6 +19,61 @@ app = typer.Typer(
     help="ICC MES AutoTrader — FSM-driven automated trading for MES futures",
 )
 console = Console()
+
+# PID lock file to prevent duplicate auto-trader instances
+_PID_FILE = Path(__file__).resolve().parent.parent / ".icc_autotrader.pid"
+
+
+def _kill_existing_process() -> None:
+    """If a previous auto-trader process is running, kill it."""
+    if not _PID_FILE.exists():
+        return
+
+    try:
+        old_pid = int(_PID_FILE.read_text().strip())
+    except (ValueError, OSError):
+        _PID_FILE.unlink(missing_ok=True)
+        return
+
+    # Check if process is alive
+    try:
+        os.kill(old_pid, 0)
+    except (OSError, ProcessLookupError):
+        _PID_FILE.unlink(missing_ok=True)
+        return
+
+    console.print(f"[yellow]Found existing auto-trader (PID {old_pid}), terminating...[/yellow]")
+    try:
+        os.kill(old_pid, _signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        _PID_FILE.unlink(missing_ok=True)
+        return
+
+    # Wait up to 5 seconds for graceful shutdown
+    for _ in range(50):
+        _time.sleep(0.1)
+        try:
+            os.kill(old_pid, 0)
+        except (OSError, ProcessLookupError):
+            break
+    else:
+        console.print(f"[red]PID {old_pid} did not exit, sending SIGKILL...[/red]")
+        try:
+            os.kill(old_pid, _signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+
+    _PID_FILE.unlink(missing_ok=True)
+
+
+def _write_pid() -> None:
+    """Write current process PID to the lock file."""
+    _PID_FILE.write_text(str(os.getpid()))
+
+
+def _cleanup_pid() -> None:
+    """Remove the PID lock file."""
+    _PID_FILE.unlink(missing_ok=True)
 
 
 @app.command()
@@ -172,6 +230,10 @@ def live(
     headless: bool = typer.Option(False, "--headless", help="Run without web dashboard"),
     web_port: int = typer.Option(8000, "--web-port", help="Web dashboard port"),
     auto: bool = typer.Option(False, "--auto", help="Autonomous mode: auto-start/stop on schedule with watchdog"),
+    instrument: str = typer.Option("FUTURES", "--instrument", "-i", help="Instrument type: FUTURES or OPTIONS"),
+    underlying: str = typer.Option("MES", "--underlying", "-u", help="Option underlying: MES or SPX (only for OPTIONS)"),
+    strategy: str = typer.Option("ICC", "--strategy", "-s", help="Strategy: ICC or ORB"),
+    tickers: str = typer.Option("", "--tickers", "-t", help="Comma-separated tickers for multi-ticker ORB (e.g. SPY,QQQ,NVDA,AAPL)"),
 ):
     """Start live autonomous trading via Lumibot + Interactive Brokers."""
     import os
@@ -179,8 +241,12 @@ def live(
     os.environ["ICC_IB__CLIENT_ID"] = client_id
     os.environ["ICC_IB__IP"] = ip
 
+    ticker_list = [t.strip() for t in tickers.split(",") if t.strip()] or None
+
     if auto:
-        _run_auto_live(headless=headless, web_port=web_port)
+        _run_auto_live(headless=headless, web_port=web_port,
+                       instrument_type=instrument, option_underlying=underlying,
+                       strategy_name=strategy, tickers=ticker_list)
     elif headless:
         _run_headless_live()
     else:
@@ -202,8 +268,13 @@ def live(
         )
 
 
-def _run_auto_live(headless: bool = False, web_port: int = 8000):
+def _run_auto_live(headless: bool = False, web_port: int = 8000,
+                   instrument_type: str = "FUTURES", option_underlying: str = "MES",
+                   strategy_name: str = "ICC", tickers: list[str] | None = None):
     """Run fully autonomous live trading with scheduler + watchdog."""
+    _kill_existing_process()
+    _write_pid()
+
     import signal
     import threading
 
@@ -221,23 +292,39 @@ def _run_auto_live(headless: bool = False, web_port: int = 8000):
     session = TradingSession(event_bus)
 
     # Set up watchdog
-    watchdog = Watchdog(session)
+    watchdog = Watchdog(session, instrument_type=instrument_type,
+                        option_underlying=option_underlying,
+                        strategy_name=strategy_name,
+                        tickers=tickers)
     session.set_watchdog(watchdog)
 
-    # Set up scheduler
-    scheduler = SessionScheduler(session)
+    # Set up scheduler with instrument type and strategy
+    scheduler = SessionScheduler(
+        session,
+        instrument_type=instrument_type,
+        option_underlying=option_underlying,
+        strategy_name=strategy_name,
+        tickers=tickers,
+    )
     scheduler.start()
     watchdog.start()
 
+    is_options = instrument_type == "OPTIONS"
+    instr_label = f"OPTIONS ({option_underlying})" if is_options else "FUTURES (MES)"
+    tickers_label = ", ".join(tickers) if tickers else option_underlying
+
     console.print(Panel(
         "ICC Autonomous Trading Mode\n"
+        f"Strategy: {strategy_name}\n"
+        f"Instrument: {instr_label}\n"
+        f"Tickers: {tickers_label}\n"
         f"Scheduler: open=09:30 ET, close=15:00 ET (weekdays)\n"
         f"Watchdog: warn=3min, restart=5min\n"
         f"Logs: {config.log_dir}/\n"
         + (f"Dashboard: http://127.0.0.1:{web_port}\n" if not headless else "Headless mode (no dashboard)\n")
         + "\nPress Ctrl+C to flatten and stop.",
         title="ICC Auto Trading",
-        border_style="green",
+        border_style="purple" if is_options else "green",
     ))
 
     stop_event = threading.Event()
@@ -258,6 +345,7 @@ def _run_auto_live(headless: bool = False, web_port: int = 8000):
         watchdog.stop()
         scheduler.stop()
         stop_event.set()
+        _cleanup_pid()
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
@@ -282,6 +370,7 @@ def _run_auto_live(headless: bool = False, web_port: int = 8000):
             log_level="info",
         )
 
+    _cleanup_pid()
     console.print("[green]Autonomous trading session ended.[/green]")
 
 

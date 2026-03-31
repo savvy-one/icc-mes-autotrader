@@ -17,16 +17,18 @@ class RiskState:
     last_loss_time: float | None = None
     killed: bool = False
     pre_kill_triggered: bool = False
+    last_large_loss_time: float | None = None
 
 
 class RiskEngine:
     """Gate-style risk engine: vetoes actions, never initiates (except kill switch)."""
 
-    def __init__(self, config: RiskConfig):
+    def __init__(self, config: RiskConfig, settlement_tracker=None):
         self.config = config
         self.state = RiskState()
         self._kill_cap = config.account_size * config.daily_loss_kill_pct
         self._prekill_cap = config.account_size * config.daily_loss_prekill_pct
+        self._settlement = settlement_tracker
 
     def reset_session(self) -> None:
         self.state = RiskState()
@@ -36,6 +38,8 @@ class RiskEngine:
         if pnl_change < 0:
             self.state.consecutive_losses += 1
             self.state.last_loss_time = time.time()
+            if abs(pnl_change) >= self.config.large_loss_threshold:
+                self.state.last_large_loss_time = time.time()
         else:
             self.state.consecutive_losses = 0
 
@@ -59,8 +63,13 @@ class RiskEngine:
             return True
         return False
 
-    def can_open_trade(self) -> tuple[bool, str]:
-        """Check all risk rules. Returns (allowed, reason)."""
+    def can_open_trade(self, trade_cost: float = 0.0) -> tuple[bool, str]:
+        """Check all risk rules. Returns (allowed, reason).
+
+        Args:
+            trade_cost: Estimated cost of the trade (for settlement check).
+                        Pass 0.0 to skip settlement check (backward-compatible).
+        """
         if self.state.killed:
             return False, "Kill switch active"
 
@@ -84,6 +93,19 @@ class RiskEngine:
             if elapsed < self.config.cooldown_seconds:
                 remaining = int(self.config.cooldown_seconds - elapsed)
                 return False, f"Cooldown active ({remaining}s remaining)"
+
+        # Large loss cooldown (longer cooldown after big losses)
+        if self.state.last_large_loss_time is not None:
+            elapsed = time.time() - self.state.last_large_loss_time
+            if elapsed < self.config.large_loss_cooldown_seconds:
+                remaining = int(self.config.large_loss_cooldown_seconds - elapsed)
+                return False, f"Large loss cooldown ({remaining}s remaining)"
+
+        # Settlement / funding tranche check
+        if trade_cost > 0 and self._settlement is not None:
+            allowed, reason = self._settlement.can_afford_trade(trade_cost)
+            if not allowed:
+                return False, reason
 
         return True, "OK"
 

@@ -1,0 +1,13 @@
+# ORB (Opening Range Breakout) strategy defaults — optimized for equity options
+range_minutes: 15
+target_multiplier: 1.5
+stop_mode: "opposite"          # "opposite" (far side of range) or "midpoint"
+volume_confirmation: false
+volume_threshold_pct: 120.0
+max_wait_minutes: 60
+reentry_allowed: true
+trade_timeout_bars: 90            # extended from 60 to let winners run longer
+min_atr_pct: 0.05
+trailing_stop_enabled: true
+breakeven_range_pct: 0.5
+trail_range_pct: 0.5

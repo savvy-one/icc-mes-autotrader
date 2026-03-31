@@ -37,9 +37,15 @@ export const verifyToken = () =>
   fetchJSON<{ valid: boolean; user?: string }>("/api/auth/verify");
 
 // Session controls
-export const startSimulated = () => postJSON<{ status: string }>("/api/session/start");
-export const startLive = (paper = true) =>
-  postJSON<{ status: string; mode?: string }>(`/api/session/start-live?paper=${paper}`);
+export const startSimulated = (instrumentType = "FUTURES", strategy = "ICC") =>
+  postJSON<{ status: string }>(`/api/session/start?instrument_type=${instrumentType}&strategy=${strategy}`);
+export const startLive = (paper = true, instrumentType = "FUTURES", optionUnderlying = "MES", strategy = "ICC", tickers?: string[]) => {
+  let url = `/api/session/start-live?paper=${paper}&instrument_type=${instrumentType}&option_underlying=${optionUnderlying}&strategy=${strategy}`;
+  if (tickers && tickers.length > 0) {
+    url += `&tickers=${tickers.join(",")}`;
+  }
+  return postJSON<{ status: string; mode?: string; instrument_type?: string; strategy?: string; tickers?: string[] }>(url);
+};
 export const stopSession = () => postJSON<{ status: string }>("/api/session/stop");
 export const killSession = () => postJSON<{ status: string }>("/api/session/kill");
 

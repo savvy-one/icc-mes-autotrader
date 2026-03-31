@@ -24,6 +24,10 @@ class EventType(str, Enum):
     SESSION_STARTED = "session_started"
     SESSION_STOPPED = "session_stopped"
     SESSION_FLATTEN = "session_flatten"
+    RESEARCH_VETO = "research_veto"
+    RESEARCH_UPDATE = "research_update"
+    SETTLEMENT_CHECK = "settlement_check"
+    SETTLEMENT_BLOCKED = "settlement_blocked"
 
 
 @dataclass(frozen=True, slots=True)

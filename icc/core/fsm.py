@@ -14,6 +14,7 @@ TRANSITION_TABLE: dict[FSMState, dict[str, FSMState]] = {
     FSMState.FLAT: {
         "indication_up": FSMState.INDICATION_UP,
         "indication_down": FSMState.INDICATION_DOWN,
+        "orb_start": FSMState.ORB_BUILDING,
     },
     FSMState.INDICATION_UP: {
         "correction_up": FSMState.CORRECTION_UP,
@@ -62,6 +63,18 @@ TRANSITION_TABLE: dict[FSMState, dict[str, FSMState]] = {
     },
     FSMState.RISK_BLOCKED: {
         "reset": FSMState.FLAT,
+    },
+    # ORB (Opening Range Breakout) transitions
+    FSMState.ORB_BUILDING: {
+        "range_set": FSMState.ORB_ARMED,
+        "timeout": FSMState.FLAT,
+    },
+    FSMState.ORB_ARMED: {
+        "enter_long": FSMState.IN_TRADE_UP,
+        "enter_short": FSMState.IN_TRADE_DOWN,
+        "range_expired": FSMState.FLAT,
+        "timeout": FSMState.FLAT,
+        "invalidate": FSMState.FLAT,
     },
 }
 

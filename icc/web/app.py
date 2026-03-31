@@ -26,6 +26,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
+        "http://localhost:3002",
         "https://icc-autotrader.onrender.com",
     ],
     allow_credentials=True,
@@ -145,19 +146,41 @@ async def api_auth_verify(authorization: str = Header(default="")):
 # --- API Endpoints ---
 
 @app.post("/api/session/start")
-async def api_start_session():
+async def api_start_session(
+    instrument_type: str = Query(default="FUTURES"),
+    strategy: str = Query(default="ICC"),
+):
     try:
-        session.start(delay=1.0)
-        return {"status": "started"}
+        session.start(delay=1.0, instrument_type=instrument_type, strategy_name=strategy)
+        return {"status": "started", "instrument_type": instrument_type, "strategy": strategy}
     except RuntimeError as e:
         return {"status": "error", "message": str(e)}
 
 
 @app.post("/api/session/start-live")
-async def api_start_live_session(paper: bool = Query(default=True)):
+async def api_start_live_session(
+    paper: bool = Query(default=True),
+    instrument_type: str = Query(default="FUTURES"),
+    option_underlying: str = Query(default="MES"),
+    strategy: str = Query(default="ICC"),
+    tickers: str = Query(default=""),
+):
     try:
-        session.start_live(paper=paper)
-        return {"status": "started", "mode": "paper" if paper else "live"}
+        ticker_list = [t.strip() for t in tickers.split(",") if t.strip()] or None
+        session.start_live(
+            paper=paper,
+            instrument_type=instrument_type,
+            option_underlying=option_underlying,
+            strategy_name=strategy,
+            tickers=ticker_list,
+        )
+        return {
+            "status": "started",
+            "mode": "paper" if paper else "live",
+            "instrument_type": instrument_type,
+            "strategy": strategy,
+            "tickers": ticker_list or [option_underlying],
+        }
     except RuntimeError as e:
         return {"status": "error", "message": str(e)}
 
@@ -192,42 +215,99 @@ async def api_scheduler_status():
 
 @app.get("/api/trades")
 async def api_trades(limit: int = Query(default=50, ge=1, le=500)):
-    """Return recent trade history from the database."""
-    from icc.db.engine import get_session
+    """Return recent trade history from the database.
+
+    Queries all known DB files and merges results so trades from
+    live, paper, and simulated sessions all appear.
+    """
+    from icc.db.engine import get_session, init_db
     from icc.db.models import TradeRecord
 
-    try:
-        db = get_session(_db_url) if _db_url else get_session()
-        trades = (
-            db.query(TradeRecord)
-            .order_by(TradeRecord.entry_time.desc())
-            .limit(limit)
-            .all()
-        )
-        return [
-            {
-                "id": t.id,
-                "session_id": t.session_id,
-                "side": t.side,
-                "entry_price": t.entry_price,
-                "exit_price": t.exit_price,
-                "stop_price": t.stop_price,
-                "target_price": t.target_price,
-                "quantity": t.quantity,
-                "pnl": t.pnl,
-                "gross_pnl": (t.pnl + t.commission) if t.pnl is not None else None,
-                "commission": t.commission,
-                "entry_time": t.entry_time.isoformat() if t.entry_time else None,
-                "exit_time": t.exit_time.isoformat() if t.exit_time else None,
-                "exit_reason": t.exit_reason,
-            }
-            for t in trades
-        ]
-    except Exception as e:
-        logger.warning("Failed to fetch trades: %s", e)
-        return []
-    finally:
-        db.close()
+    all_trades: list[dict] = []
+
+    # Query all known DB files to surface all historical trades
+    db_urls = set()
+    if _db_url:
+        db_urls.add(_db_url)
+    # Always include known DBs (use relative paths — CWD is project root)
+    import os
+    for db_file in ("icc_live.db", "icc_trades.db", "icc_paper.db"):
+        if os.path.exists(db_file):
+            db_urls.add(f"sqlite:///{db_file}")
+
+    seen_ids: set[tuple[str, str]] = set()  # (session_id, entry_time) to dedupe
+
+    for url in db_urls:
+        try:
+            init_db(url)
+            db = get_session(url)
+            trades = (
+                db.query(TradeRecord)
+                .order_by(TradeRecord.entry_time.desc())
+                .limit(limit)
+                .all()
+            )
+            for t in trades:
+                key = (t.session_id, t.entry_time.isoformat() if t.entry_time else "")
+                if key in seen_ids:
+                    continue
+                seen_ids.add(key)
+                inst_type = getattr(t, "instrument_type", None) or "FUTURES"
+                is_option = inst_type == "OPTIONS"
+                trade_dict = {
+                    "id": t.id,
+                    "session_id": t.session_id,
+                    "side": t.side,
+                    "entry_price": t.entry_price,
+                    "exit_price": t.exit_price,
+                    "stop_price": None if is_option else t.stop_price,
+                    "target_price": None if is_option else t.target_price,
+                    "quantity": t.quantity,
+                    "pnl": t.pnl,
+                    "gross_pnl": (t.pnl + t.commission) if t.pnl is not None else None,
+                    "commission": t.commission,
+                    "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+                    "exit_time": t.exit_time.isoformat() if t.exit_time else None,
+                    "exit_reason": t.exit_reason,
+                    "instrument_type": inst_type,
+                    "option_underlying": getattr(t, "option_underlying", None),
+                    "option_right": getattr(t, "option_right", None),
+                    "option_strike": getattr(t, "option_strike", None),
+                    "option_expiration": getattr(t, "option_expiration", None),
+                    "option_entry_premium": getattr(t, "option_entry_premium", None),
+                    "option_exit_premium": getattr(t, "option_exit_premium", None),
+                    "underlying_stop": t.stop_price if is_option else None,
+                    "underlying_target": t.target_price if is_option else None,
+                }
+                all_trades.append(trade_dict)
+            db.close()
+        except Exception as e:
+            logger.debug("Skipping DB %s: %s", url, e)
+
+    # Sort by entry_time descending, limit
+    all_trades.sort(key=lambda x: x.get("entry_time") or "", reverse=True)
+    return all_trades[:limit]
+
+
+@app.get("/api/settlement")
+async def api_settlement():
+    """Return current settlement/funding tranche state."""
+    snapshot = session.get_snapshot()
+    return snapshot.get("settlement", {"status": "not_available"})
+
+
+@app.get("/api/win-rate")
+async def api_win_rate():
+    """Return current win rate tracker state."""
+    snapshot = session.get_snapshot()
+    return snapshot.get("win_rate", {"status": "not_available"})
+
+
+@app.get("/api/research/status")
+async def api_research_status():
+    """Return current research agent state."""
+    snapshot = session.get_snapshot()
+    return snapshot.get("research", {"status": "not_available"})
 
 
 @app.get("/api/config")

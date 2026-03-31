@@ -39,6 +39,9 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# Data files
+data/
+
 # Frontend (Next.js)
 frontend/node_modules/
 frontend/.next/

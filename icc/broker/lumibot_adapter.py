@@ -30,7 +30,25 @@ class LumibotBrokerAdapter(BrokerAdapter):
         try:
             from lumibot.entities import Asset
 
-            asset = self._strategy.asset  # set in ICCLumibotStrategy.initialize()
+            # Use option asset if order carries option contract info
+            if order.asset_info and order.asset_info.get("asset_type") == "OPTION":
+                from datetime import date as _date
+
+                exp = order.asset_info["expiration"]
+                expiration = (
+                    _date.fromisoformat(exp) if isinstance(exp, str) else exp
+                )
+                asset = Asset(
+                    symbol=order.asset_info["underlying"],
+                    asset_type=Asset.AssetType.OPTION,
+                    expiration=expiration,
+                    strike=order.asset_info["strike"],
+                    right=order.asset_info["option_type"].lower(),
+                    multiplier=int(order.asset_info.get("multiplier", 5)),
+                )
+            else:
+                asset = self._strategy.asset  # futures asset
+
             side = "buy" if order.side == OrderSide.BUY else "sell"
 
             lumi_order = self._strategy.create_order(
@@ -41,13 +59,28 @@ class LumibotBrokerAdapter(BrokerAdapter):
             )
             self._strategy.submit_order(lumi_order)
 
-            # Lumibot fills synchronously for IB in most cases.
-            # Use the order price or last known price as fill price.
+            # Wait for IB fill (async — poll up to 10 seconds)
+            import time
             fill_price = order.price or 0.0
-            if hasattr(lumi_order, "get_fill_price"):
-                fp = lumi_order.get_fill_price()
-                if fp:
-                    fill_price = fp
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline:
+                if lumi_order.is_filled():
+                    fp = lumi_order.get_fill_price()
+                    if fp:
+                        fill_price = fp
+                        logger.info("Order filled at %.4f", fill_price)
+                    break
+                time.sleep(0.2)
+            else:
+                # Timeout — use best available price
+                logger.warning(
+                    "Order fill timeout after 10s — using submitted price %.4f",
+                    fill_price,
+                )
+                if hasattr(lumi_order, "get_fill_price"):
+                    fp = lumi_order.get_fill_price()
+                    if fp:
+                        fill_price = fp
 
             return Fill(
                 order_id=order.order_id,

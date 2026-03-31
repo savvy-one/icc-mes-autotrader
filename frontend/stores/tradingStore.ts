@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Candle, FSMState, Position, TradingSnapshot } from "@/lib/types";
+import type { Candle, FSMState, OptionContract, Position, TickerState, TradingSnapshot } from "@/lib/types";
 
 const MAX_CANDLES = 200;
 
@@ -14,6 +14,12 @@ interface TradingStore {
   candles: Candle[];
   running: boolean;
   mode: string;
+  optionContract: OptionContract | null;
+  // Multi-ticker
+  multiTicker: boolean;
+  tickers: string[];
+  activeTicker: string | null;
+  tickerStates: Record<string, TickerState>;
 
   // Actions
   updateSnapshot: (snap: TradingSnapshot) => void;
@@ -33,6 +39,11 @@ const initialState = {
   candles: [] as Candle[],
   running: false,
   mode: "",
+  optionContract: null as OptionContract | null,
+  multiTicker: false,
+  tickers: [] as string[],
+  activeTicker: null as string | null,
+  tickerStates: {} as Record<string, TickerState>,
 };
 
 export const useTradingStore = create<TradingStore>((set) => ({
@@ -48,6 +59,11 @@ export const useTradingStore = create<TradingStore>((set) => ({
       lastCandle: snap.last_candle,
       running: snap.running,
       mode: snap.mode ?? "",
+      optionContract: snap.option_contract ?? null,
+      multiTicker: snap.multi_ticker ?? false,
+      tickers: snap.tickers ?? [],
+      activeTicker: snap.active_ticker ?? null,
+      tickerStates: snap.ticker_states ?? {},
     }),
 
   addCandle: (candle) =>

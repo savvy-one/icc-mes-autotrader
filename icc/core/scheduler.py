@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_OPEN_HOUR = 9
 DEFAULT_OPEN_MINUTE = 30
 DEFAULT_CLOSE_HOUR = 15
-DEFAULT_CLOSE_MINUTE = 0
+DEFAULT_CLOSE_MINUTE = 45
 
 _ET = pytz.timezone("US/Eastern")
 
@@ -53,6 +53,10 @@ class SessionScheduler:
         open_minute: int = DEFAULT_OPEN_MINUTE,
         close_hour: int = DEFAULT_CLOSE_HOUR,
         close_minute: int = DEFAULT_CLOSE_MINUTE,
+        instrument_type: str = "FUTURES",
+        option_underlying: str = "MES",
+        strategy_name: str = "ICC",
+        tickers: list[str] | None = None,
     ) -> None:
         self._session = session
         self._open_hour = open_hour
@@ -61,6 +65,10 @@ class SessionScheduler:
         self._close_minute = close_minute
         self._open_time = time(open_hour, open_minute)
         self._close_time = time(close_hour, close_minute)
+        self._instrument_type = instrument_type
+        self._option_underlying = option_underlying
+        self._strategy_name = strategy_name
+        self._tickers = tickers
         self._scheduler = BackgroundScheduler(timezone="US/Eastern")
 
     # ------------------------------------------------------------------
@@ -129,9 +137,15 @@ class SessionScheduler:
 
     def _session_open(self) -> None:
         """Cron callback: start the live trading session."""
-        logger.info("Scheduler: opening trading session")
+        logger.info("Scheduler: opening trading session (strategy=%s, instrument=%s)",
+                     self._strategy_name, self._instrument_type)
         try:
-            self._session.start_live()
+            self._session.start_live(
+                instrument_type=self._instrument_type,
+                option_underlying=self._option_underlying,
+                strategy_name=self._strategy_name,
+                tickers=self._tickers,
+            )
         except RuntimeError as e:
             logger.error("Scheduler: failed to start session: %s", e)
 
@@ -155,11 +169,18 @@ class SessionScheduler:
         if self._session.is_running:
             return
         logger.warning(
-            "Scheduler: catch-up check — no session running at %s ET, starting",
+            "Scheduler: catch-up check — no session running at %s ET, starting (strategy=%s, instrument=%s)",
             now_et.strftime("%H:%M:%S"),
+            self._strategy_name,
+            self._instrument_type,
         )
         try:
-            self._session.start_live()
+            self._session.start_live(
+                instrument_type=self._instrument_type,
+                option_underlying=self._option_underlying,
+                strategy_name=self._strategy_name,
+                tickers=self._tickers,
+            )
         except RuntimeError as e:
             logger.error("Scheduler: catch-up failed to start session: %s", e)
 
@@ -181,7 +202,12 @@ class SessionScheduler:
 
     def get_status(self) -> dict[str, Any]:
         """Return scheduler status including next fire times."""
-        status: dict[str, Any] = {"running": self._scheduler.running}
+        status: dict[str, Any] = {
+            "running": self._scheduler.running,
+            "strategy_name": self._strategy_name,
+            "instrument_type": self._instrument_type,
+            "option_underlying": self._option_underlying,
+        }
         for job_id in ("session_open", "session_close", "catch_up"):
             job = self._scheduler.get_job(job_id)
             if job and job.next_run_time:

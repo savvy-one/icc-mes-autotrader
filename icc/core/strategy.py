@@ -200,6 +200,11 @@ class StrategyEngine:
             return Signal(action="none", reason="ATR not available")
 
         current_atr = atr_vals[-1]
+        last_close = closes[-1] if closes else 1.0
+        min_atr_abs = self.config.min_atr_pct / 100.0 * last_close
+        if current_atr < min_atr_abs:
+            return Signal(action="none", reason=f"ATR too low ({current_atr:.2f} < {min_atr_abs:.2f})")
+
         entry = self._correction_high + MES_TICK_SIZE
         stop = self._correction_low - self.config.stop_atr_mult * current_atr
         target = entry + self.config.target_atr_mult * current_atr
@@ -224,6 +229,11 @@ class StrategyEngine:
             return Signal(action="none", reason="ATR not available")
 
         current_atr = atr_vals[-1]
+        last_close = closes[-1] if closes else 1.0
+        min_atr_abs = self.config.min_atr_pct / 100.0 * last_close
+        if current_atr < min_atr_abs:
+            return Signal(action="none", reason=f"ATR too low ({current_atr:.2f} < {min_atr_abs:.2f})")
+
         entry = self._correction_low - MES_TICK_SIZE
         stop = self._correction_high + self.config.stop_atr_mult * current_atr
         target = entry - self.config.target_atr_mult * current_atr

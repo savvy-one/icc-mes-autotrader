@@ -1,0 +1,12 @@
+instrument_type: "FUTURES"   # FUTURES or OPTIONS
+underlying: "MES"            # MES, SPX, SPY, ES
+strike_mode: "ATM"           # ATM, OTM_1, DELTA
+expiration_mode: "WEEKLY"    # ZERO_DTE, WEEKLY, MONTHLY
+premium_stop_pct: 0.50       # Exit if premium drops 50%
+expiration_guard_minutes: 15  # Auto-exit N min before close on exp day
+quantity: 1
+option_commission_per_side: 1.50
+cash_settled_underlyings:
+  - "SPX"
+max_premium: 2.00            # Max premium per contract ($2.00 = $200 risk)
+otm_fallback: true           # If ATM > max_premium, try OTM_1

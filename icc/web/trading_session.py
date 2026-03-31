@@ -72,12 +72,16 @@ class TradingSession:
     def is_running(self) -> bool:
         return self._running and self._thread is not None and self._thread.is_alive()
 
-    def start(self, data_file: Optional[str] = None, delay: float = 1.0) -> None:
+    def start(self, data_file: Optional[str] = None, delay: float = 1.0,
+              instrument_type: str = "FUTURES", strategy_name: str = "ICC") -> None:
         """Start the trading session in a background thread."""
         if self.is_running:
             raise RuntimeError("Session already running")
 
         self._config = load_config("paper")
+        # Override instrument type and strategy from session selection
+        self._config.options.instrument_type = instrument_type
+        self._config.strategy_name = strategy_name
 
         # Load candles
         if data_file:
@@ -103,6 +107,25 @@ class TradingSession:
         db_session = get_db_session(self._config.db_url)
         session_id = "sim-" + uuid4().hex[:8]
 
+        # Settlement tracker
+        settlement_tracker = None
+        if self._config.settlement.enabled:
+            from icc.core.settlement import SettlementTracker
+            settlement_tracker = SettlementTracker(
+                total_capital=self._config.risk.account_size,
+                safety_buffer=self._config.settlement.safety_buffer,
+                tranches=self._config.settlement.tranches,
+                max_trades_per_tranche=self._config.settlement.max_trades_per_tranche,
+            )
+
+        # Research agent
+        research_agent = None
+        if self._config.research.enabled:
+            from icc.research.agent import ResearchAgent
+            from icc.research.config import ResearchConfig as RAConfig
+            ra_config = RAConfig(**self._config.research.model_dump())
+            research_agent = ResearchAgent(ra_config)
+
         self._trader = Trader(
             config=self._config,
             order_manager=oms,
@@ -110,6 +133,8 @@ class TradingSession:
             event_bus=self.event_bus,
             db_session=db_session,
             session_id=session_id,
+            settlement_tracker=settlement_tracker,
+            research_agent=research_agent,
         )
 
         self._running = True
@@ -132,11 +157,17 @@ class TradingSession:
             self.event_bus.emit(EventType.SESSION_STOPPED)
             logger.info("Trading session stopped")
 
-    def start_live(self, paper: bool = True) -> None:
+    def start_live(self, paper: bool = True, instrument_type: str = "FUTURES",
+                   option_underlying: str = "MES", strategy_name: str = "ICC",
+                   tickers: list[str] | None = None) -> None:
         """Start a LIVE trading session via Lumibot + Interactive Brokers.
 
         Args:
             paper: If True use TWS paper port (7497), if False use live port (7496).
+            instrument_type: FUTURES or OPTIONS.
+            option_underlying: MES or SPX (only when instrument_type=OPTIONS).
+            strategy_name: ICC or ORB.
+            tickers: List of tickers for multi-ticker mode (e.g. ["SPY", "QQQ", "NVDA", "AAPL"]).
         """
         if self.is_running:
             raise RuntimeError("Session already running")
@@ -153,19 +184,28 @@ class TradingSession:
         from icc.config import load_config
 
         self._config = load_config("live")
+        # Override instrument type, underlying, and strategy from session selection
+        self._config.options.instrument_type = instrument_type
+        self._config.options.underlying = option_underlying
+        self._config.strategy_name = strategy_name
         # Override IB port: 7497 = paper, 7496 = live/cash
         socket_port = 7497 if paper else 7496
         ib_config = {
             "SOCKET_PORT": socket_port,
-            "CLIENT_ID": self._config.ib.client_id,
+            "CLIENT_ID": int(self._config.ib.client_id),
             "IP": self._config.ib.ip,
         }
 
         broker = InteractiveBrokers(ib_config)
-        strategy = ICCLumibotStrategy(
-            broker=broker,
-            parameters={"event_bus": self.event_bus},
-        )
+        params = {
+            "event_bus": self.event_bus,
+            "instrument_type": instrument_type,
+            "option_underlying": option_underlying,
+            "strategy_name": strategy_name,
+        }
+        if tickers:
+            params["tickers"] = tickers
+        strategy = ICCLumibotStrategy(broker=broker, parameters=params)
         self._lumi_strategy = strategy
 
         self._lumi_trader = LumiTrader()
@@ -178,7 +218,8 @@ class TradingSession:
         )
         self._thread.start()
         self.event_bus.emit(EventType.SESSION_STARTED, {"mode": self._mode})
-        logger.info("%s trading session started (port %s)", self._mode.upper(), socket_port)
+        ticker_info = f", tickers={tickers}" if tickers else ""
+        logger.info("%s trading session started (port %s%s)", self._mode.upper(), socket_port, ticker_info)
 
     def _run_live(self, lumi_trader) -> None:
         """Run Lumibot trader in background thread."""
@@ -274,11 +315,22 @@ class TradingSession:
         self._watchdog = watchdog
 
     def get_snapshot(self) -> dict:
-        """Get current trader snapshot."""
-        trader = self._trader
-        # In live mode, the Trader lives inside the Lumibot strategy
-        if trader is None and self._lumi_strategy is not None:
+        """Get current trader snapshot (supports multi-ticker mode)."""
+        # In live mode, check for multi-ticker snapshot first
+        if self._lumi_strategy is not None:
+            if hasattr(self._lumi_strategy, 'get_multi_snapshot'):
+                snapshot = self._lumi_strategy.get_multi_snapshot()
+                snapshot["session_running"] = self.is_running
+                snapshot["mode"] = self._mode
+                return snapshot
             trader = getattr(self._lumi_strategy, "icc_trader", None)
+            if trader is not None:
+                snapshot = trader.get_snapshot()
+                snapshot["session_running"] = self.is_running
+                snapshot["mode"] = self._mode
+                return snapshot
+
+        trader = self._trader
         if trader is None:
             return {"status": "no_session"}
         snapshot = trader.get_snapshot()

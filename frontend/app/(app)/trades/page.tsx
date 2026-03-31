@@ -208,9 +208,11 @@ export default function TradesPage() {
                 <thead>
                   <tr className="border-b border-zinc-800 text-xs text-zinc-500">
                     <th className="px-3 py-2">#</th>
+                    <th className="px-3 py-2">Instrument</th>
                     <th className="px-3 py-2">Side</th>
                     <th className="px-3 py-2">Entry</th>
                     <th className="px-3 py-2">Exit</th>
+                    <th className="px-3 py-2">Stop / Target</th>
                     <th className="px-3 py-2">Gross P&L</th>
                     <th className="px-3 py-2">Commission</th>
                     <th className="px-3 py-2">Net P&L</th>
@@ -225,6 +227,10 @@ export default function TradesPage() {
                     const net = formatPnL(t.pnl);
                     const gross = formatPnL(t.gross_pnl);
                     const rt = formatPnL(runningTotalMap.get(t.id) ?? 0);
+                    const isOption = t.instrument_type === "OPTIONS";
+                    // For options: use underlying_stop/target (reference levels on the stock)
+                    const stopVal = isOption ? t.underlying_stop : t.stop_price;
+                    const targetVal = isOption ? t.underlying_target : t.target_price;
                     return (
                       <tr
                         key={t.id}
@@ -232,6 +238,23 @@ export default function TradesPage() {
                       >
                         <td className="px-3 py-2 text-zinc-600">
                           {idx + 1}
+                        </td>
+                        <td className="px-3 py-2">
+                          {isOption ? (
+                            <span className="text-purple-400">
+                              {t.option_underlying} {t.option_strike}{" "}
+                              <span className={t.option_right === "CALL" ? "text-green-400" : "text-red-400"}>
+                                {t.option_right}
+                              </span>
+                              {t.option_expiration && (
+                                <span className="ml-1 text-zinc-500 text-xs">
+                                  {t.option_expiration}
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400">MES</span>
+                          )}
                         </td>
                         <td
                           className={`px-3 py-2 font-medium ${
@@ -243,10 +266,44 @@ export default function TradesPage() {
                           {t.side}
                         </td>
                         <td className="px-3 py-2">
-                          {formatPrice(t.entry_price)}
+                          {isOption && t.option_entry_premium != null ? (
+                            <div>
+                              <span className="text-zinc-100">${t.option_entry_premium.toFixed(2)}</span>
+                              <span className="ml-1 text-xs text-zinc-600">prem</span>
+                            </div>
+                          ) : (
+                            formatPrice(t.entry_price)
+                          )}
                         </td>
                         <td className="px-3 py-2">
-                          {formatPrice(t.exit_price)}
+                          {isOption && t.option_exit_premium != null ? (
+                            <div>
+                              <span className="text-zinc-100">${t.option_exit_premium.toFixed(2)}</span>
+                              <span className="ml-1 text-xs text-zinc-600">prem</span>
+                            </div>
+                          ) : (
+                            formatPrice(t.exit_price)
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-zinc-500">
+                          {stopVal != null || targetVal != null ? (
+                            <div>
+                              {stopVal != null && (
+                                <span className="text-red-400/70">{stopVal.toFixed(2)}</span>
+                              )}
+                              {stopVal != null && targetVal != null && (
+                                <span className="text-zinc-600"> / </span>
+                              )}
+                              {targetVal != null && (
+                                <span className="text-green-400/70">{targetVal.toFixed(2)}</span>
+                              )}
+                              {isOption && (
+                                <span className="ml-1 text-zinc-700">stk</span>
+                              )}
+                            </div>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className={`px-3 py-2 ${gross.className}`}>
                           {gross.text}

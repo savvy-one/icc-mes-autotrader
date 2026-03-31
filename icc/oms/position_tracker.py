@@ -25,7 +25,9 @@ class PositionTracker:
 
     def open_position(self, side: OrderSide, entry_price: float,
                       stop_price: float, target_price: float,
-                      quantity: int = 1) -> Position:
+                      quantity: int = 1,
+                      multiplier: float | None = None,
+                      entry_premium: float | None = None) -> Position:
         if self.position is not None:
             raise RuntimeError("Already holding a position")
         self.position = Position(
@@ -34,6 +36,9 @@ class PositionTracker:
             quantity=quantity,
             stop_price=stop_price,
             target_price=target_price,
+            multiplier=multiplier,
+            entry_premium=entry_premium,
+            original_stop_price=stop_price,
         )
         logger.info("Opened %s position at %.2f", side.value, entry_price)
         return self.position
@@ -73,6 +78,38 @@ class PositionTracker:
             self.position.bars_held += 1
             return self.position.bars_held
         return 0
+
+    def update_trailing_stop(self, current_price: float, atr_value: float,
+                             breakeven_mult: float, trail_mult: float) -> None:
+        """Adjust stop price: breakeven first, then trail."""
+        pos = self.position
+        if pos is None:
+            return
+
+        if pos.is_long:
+            profit_distance = current_price - pos.entry_price
+            # Phase 1: Breakeven
+            if not pos.breakeven_triggered and profit_distance >= breakeven_mult * atr_value:
+                pos.stop_price = pos.entry_price
+                pos.breakeven_triggered = True
+                logger.info("Breakeven triggered at %.2f", current_price)
+            # Phase 2: Trail
+            if pos.breakeven_triggered:
+                new_stop = current_price - trail_mult * atr_value
+                if new_stop > pos.stop_price:
+                    pos.stop_price = new_stop
+                    pos.trailing_active = True
+        else:  # short
+            profit_distance = pos.entry_price - current_price
+            if not pos.breakeven_triggered and profit_distance >= breakeven_mult * atr_value:
+                pos.stop_price = pos.entry_price
+                pos.breakeven_triggered = True
+                logger.info("Breakeven triggered at %.2f", current_price)
+            if pos.breakeven_triggered:
+                new_stop = current_price + trail_mult * atr_value
+                if new_stop < pos.stop_price:
+                    pos.stop_price = new_stop
+                    pos.trailing_active = True
 
     def unrealized_pnl(self, current_price: float) -> float:
         if self.position is None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Float, Integer, String, DateTime, Text
+from sqlalchemy import Boolean, Float, Integer, String, DateTime, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -29,6 +29,15 @@ class TradeRecord(Base):
     exit_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     exit_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Option fields (nullable for futures trades)
+    instrument_type: Mapped[str | None] = mapped_column(String(16), nullable=True, default="FUTURES")
+    option_underlying: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    option_right: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    option_strike: Mapped[float | None] = mapped_column(Float, nullable=True)
+    option_expiration: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    option_entry_premium: Mapped[float | None] = mapped_column(Float, nullable=True)
+    option_exit_premium: Mapped[float | None] = mapped_column(Float, nullable=True)
+    option_multiplier: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class OrderRecord(Base):
@@ -78,6 +87,18 @@ class SessionRecord(Base):
     total_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     trade_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="active")
+
+
+class SettlementRecord(Base):
+    __tablename__ = "settlements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trade_id: Mapped[str] = mapped_column(String(64), index=True)
+    proceeds: Mapped[float] = mapped_column(Float)
+    trade_date: Mapped[datetime] = mapped_column(DateTime)
+    settlement_date: Mapped[datetime] = mapped_column(DateTime)
+    settled: Mapped[bool] = mapped_column(Integer, default=0)  # SQLite has no native bool
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class CandleRecord(Base):
