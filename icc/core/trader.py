@@ -222,10 +222,12 @@ class Trader:
             if current_premium > pos._premium_high:
                 pos._premium_high = current_premium
 
-            # Premium trailing: if premium went up 20%+ then drops 15% from peak, exit
-            if pos._premium_high > pos.entry_premium * 1.20:
+            # Premium trailing: exit when premium drops from peak after trigger gain
+            trail_trigger = 1.0 + self.config.options.premium_trail_trigger_pct
+            trail_drop = self.config.options.premium_trail_drop_pct
+            if pos._premium_high > pos.entry_premium * trail_trigger:
                 drop_from_peak = (pos._premium_high - current_premium) / pos._premium_high
-                if drop_from_peak >= 0.15:
+                if drop_from_peak >= trail_drop:
                     logger.info(
                         "Premium trail stop: peaked at $%.2f, now $%.2f (%.1f%% drop from peak)",
                         pos._premium_high, current_premium, drop_from_peak * 100,
@@ -311,6 +313,19 @@ class Trader:
                 if self.alert_router:
                     self.alert_router.send("research_veto", f"Entry vetoed: {reason}")
                 return
+
+        # PUT confidence gate — require extra confidence for short/PUT entries
+        if self.config.options.instrument_type == "OPTIONS":
+            direction = "long" if signal.action == "enter_long" else "short"
+            if direction == "short":
+                put_boost = self.config.options.put_confidence_boost
+                if self._research is not None and self._research._last_context is not None:
+                    conf = self._research._last_context.confidence
+                    min_conf = self._research.config.min_confidence + put_boost
+                    if conf < min_conf:
+                        print(f"[ICC] PUT confidence gate: {conf:.3f} < {min_conf:.3f} — skipping", flush=True)
+                        logger.info("PUT confidence gate: %.3f < %.3f", conf, min_conf)
+                        return
 
         # Resolve option contract (if OPTIONS mode) and compute trade cost
         contract, trade_cost = self._resolve_option_contract(signal, candle)

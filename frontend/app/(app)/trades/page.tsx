@@ -117,7 +117,10 @@ export default function TradesPage() {
     totalWins + totalLosses > 0
       ? Math.round((totalWins / (totalWins + totalLosses)) * 100)
       : 0;
+  const STARTING_BALANCE = 500;
+  const accountBalance = STARTING_BALANCE + totalNetPnl;
   const summaryPnl = formatPnL(totalNetPnl);
+  const balancePnl = formatPnL(accountBalance);
 
   return (
     <div>
@@ -131,6 +134,12 @@ export default function TradesPage() {
 
       {!loading && trades.length > 0 && (
         <div className="mb-6 flex flex-wrap items-center gap-6 rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-3">
+          <div className="text-center">
+            <div className="text-xs text-zinc-500">Account Balance</div>
+            <div className={`text-lg font-bold ${balancePnl.className}`}>
+              ${accountBalance.toFixed(2)}
+            </div>
+          </div>
           <div className="text-center">
             <div className="text-xs text-zinc-500">Total Net P&L</div>
             <div className={`text-lg font-bold ${summaryPnl.className}`}>

@@ -150,12 +150,22 @@ class SessionScheduler:
             logger.error("Scheduler: failed to start session: %s", e)
 
     def _session_close(self) -> None:
-        """Cron callback: flatten positions and stop the session."""
+        """Cron callback: flatten positions, stop the session, then exit process."""
         logger.info("Scheduler: closing trading session")
         try:
             self._session.flatten_and_stop()
         except Exception as e:
             logger.error("Scheduler: failed to stop session: %s", e)
+
+        # Force-exit after grace period — Lumibot's thread pool doesn't shut
+        # down cleanly, leaving a zombie process that blocks tomorrow's startup.
+        import threading
+        def _delayed_exit():
+            import time, os
+            time.sleep(30)  # 30s grace for final writes/flushes
+            logger.info("Scheduler: forced process exit after session close")
+            os._exit(0)
+        threading.Thread(target=_delayed_exit, daemon=True).start()
 
     def _catch_up_check(self) -> None:
         """Interval callback: start session if inside trading window and idle."""

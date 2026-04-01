@@ -59,28 +59,48 @@ class LumibotBrokerAdapter(BrokerAdapter):
             )
             self._strategy.submit_order(lumi_order)
 
-            # Wait for IB fill (async — poll up to 10 seconds)
+            # Wait for IB fill — poll order status, then check positions
             import time
             fill_price = order.price or 0.0
             deadline = time.monotonic() + 10.0
+            filled = False
+
             while time.monotonic() < deadline:
                 if lumi_order.is_filled():
                     fp = lumi_order.get_fill_price()
                     if fp:
                         fill_price = fp
-                        logger.info("Order filled at %.4f", fill_price)
+                    filled = True
+                    logger.info("Order filled (order status) at %.4f", fill_price)
                     break
-                time.sleep(0.2)
-            else:
-                # Timeout — use best available price
+                time.sleep(0.3)
+
+            if not filled:
+                # Order status didn't update — check if position exists (IB filled
+                # but Lumibot's order state machine lagged behind)
+                try:
+                    positions = self._strategy.get_positions()
+                    for pos in positions:
+                        if str(pos.asset) == str(asset) or (
+                            hasattr(pos.asset, 'symbol') and pos.asset.symbol == asset.symbol
+                        ):
+                            filled = True
+                            # Try to get fill price from the order one more time
+                            fp = lumi_order.get_fill_price() if hasattr(lumi_order, "get_fill_price") else None
+                            if fp:
+                                fill_price = fp
+                            logger.info(
+                                "Order filled (position confirmed) at %.4f", fill_price,
+                            )
+                            break
+                except Exception as e:
+                    logger.debug("Position check after fill timeout: %s", e)
+
+            if not filled:
                 logger.warning(
-                    "Order fill timeout after 10s — using submitted price %.4f",
+                    "Order fill not confirmed after 10s — using price %.4f",
                     fill_price,
                 )
-                if hasattr(lumi_order, "get_fill_price"):
-                    fp = lumi_order.get_fill_price()
-                    if fp:
-                        fill_price = fp
 
             return Fill(
                 order_id=order.order_id,

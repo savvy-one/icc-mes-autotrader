@@ -421,7 +421,21 @@ class ICCLumibotStrategy(Strategy):
         self.on_abrupt_closing()
 
     def _get_live_option_premium(self, contract) -> float | None:
-        """Fetch option premium — IB first, yfinance fallback."""
+        """Fetch option premium — yfinance first, IB fallback.
+
+        yfinance is tried first to avoid IB market data subscription errors
+        (e.g. NASDAQ TotalView) that spam logs every iteration.
+        """
+        # Primary: yfinance (no subscription required)
+        from icc.broker.option_chain import _yf_get_option_premium
+        yf_price = _yf_get_option_premium(
+            contract.underlying, contract.expiration,
+            contract.strike, contract.option_type,
+        )
+        if yf_price is not None:
+            return yf_price
+
+        # Fallback: IB direct quote
         try:
             from lumibot.entities import Asset
 
@@ -439,12 +453,7 @@ class ICCLumibotStrategy(Strategy):
         except Exception as e:
             logger.debug("IB premium fetch failed: %s", e)
 
-        # Fallback: yfinance
-        from icc.broker.option_chain import _yf_get_option_premium
-        return _yf_get_option_premium(
-            contract.underlying, contract.expiration,
-            contract.strike, contract.option_type,
-        )
+        return None
 
     # ---- Multi-ticker snapshot ----
 
