@@ -115,7 +115,8 @@ class OptionsConfig(BaseModel):
     premium_stop_pct: float = 0.35  # 35% — tighter stop to cut losers faster
     premium_trail_trigger_pct: float = 0.15  # Activate trail stop after 15% gain (was 20%)
     premium_trail_drop_pct: float = 0.15  # Exit when premium drops 15% from peak
-    put_confidence_boost: float = 0.15  # Extra confidence required for PUT entries vs CALLs
+    put_confidence_boost: float = 0.20  # Extra confidence required for PUT entries vs CALLs
+    min_premium: float = 0.50  # Reject contracts with premium < $0.50 (commission eats the edge)
     expiration_guard_minutes: int = 15
     quantity: int = 1
     option_commission_per_side: float = 1.50
@@ -132,8 +133,10 @@ class ORBConfig(BaseModel):
     confirmation_bars: int = 2  # require N consecutive closes beyond range before entering
     volume_confirmation: bool = False
     volume_threshold_pct: float = 120.0
-    max_wait_minutes: int = 60
+    max_wait_minutes: int = 120  # Extended from 60 — some breakouts take longer
     reentry_allowed: bool = True
+    re_range_on_expiry: bool = True  # Build new range if first one expires without breakout
+    max_ranges_per_session: int = 3  # Cap re-ranges to avoid endless cycling
     trade_timeout_bars: int = 90  # longer than ICC's 25 — ORB targets are wider
     min_atr_pct: float = 0.05  # percentage of price (0.05% = works across all price levels)
     trailing_stop_enabled: bool = True

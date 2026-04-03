@@ -143,6 +143,7 @@ class ICCLumibotStrategy(Strategy):
                     expiration_mode=config.options.expiration_mode,
                     expiration_guard_minutes=config.options.expiration_guard_minutes,
                     max_premium=config.options.max_premium,
+                    min_premium=config.options.min_premium,
                     otm_fallback=config.options.otm_fallback,
                 )
 

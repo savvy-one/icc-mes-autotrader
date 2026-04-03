@@ -4,8 +4,10 @@ target_multiplier: 1.5
 stop_mode: "opposite"          # "opposite" (far side of range) or "midpoint"
 volume_confirmation: false
 volume_threshold_pct: 120.0
-max_wait_minutes: 60
+max_wait_minutes: 120
 reentry_allowed: true
+re_range_on_expiry: true
+max_ranges_per_session: 3
 trade_timeout_bars: 90            # extended from 60 to let winners run longer
 min_atr_pct: 0.05
 trailing_stop_enabled: true

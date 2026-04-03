@@ -73,6 +73,7 @@ TRANSITION_TABLE: dict[FSMState, dict[str, FSMState]] = {
         "enter_long": FSMState.IN_TRADE_UP,
         "enter_short": FSMState.IN_TRADE_DOWN,
         "range_expired": FSMState.FLAT,
+        "range_expired_rerange": FSMState.FLAT,  # back to FLAT to trigger new ORB_BUILDING
         "timeout": FSMState.FLAT,
         "invalidate": FSMState.FLAT,
     },

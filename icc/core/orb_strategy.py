@@ -31,6 +31,7 @@ class ORBStrategyEngine:
         self._trade_taken: bool = False  # survives reset — one ORB per session
         self._breakout_streak: int = 0  # consecutive bars beyond range (for confirmation)
         self._breakout_direction: str = ""  # "long" or "short"
+        self._ranges_built: int = 0  # how many ranges built this session
 
     @property
     def range_height(self) -> float | None:
@@ -49,6 +50,18 @@ class ORBStrategyEngine:
         self._breakout_streak = 0
         self._breakout_direction = ""
 
+    def re_range(self) -> None:
+        """Reset range state for building a new range mid-session."""
+        self._range_high = None
+        self._range_low = None
+        self._range_candle_count = 0
+        self._range_volume_sum = 0.0
+        self._armed_bar_count = 0
+        self._orb_started = False  # allow _check_orb_start to trigger again
+        self._breakout_streak = 0
+        self._breakout_direction = ""
+        logger.info("ORB re-range: building new range (#%d)", self._ranges_built + 1)
+
     def full_reset(self) -> None:
         """Full reset for a new session — clears everything including session flags."""
         self._range_high = None
@@ -60,6 +73,7 @@ class ORBStrategyEngine:
         self._trade_taken = False
         self._breakout_streak = 0
         self._breakout_direction = ""
+        self._ranges_built = 0
 
     def evaluate(self, state: FSMState, buf: CandleBuffer) -> Signal:
         """Produce a signal given current FSM state and candle buffer."""
@@ -74,13 +88,17 @@ class ORBStrategyEngine:
             return Signal(action="none")
 
     def _check_orb_start(self, buf: CandleBuffer) -> Signal:
-        """Trigger ORB_BUILDING on the first candle."""
+        """Trigger ORB_BUILDING on the first candle or after re-range."""
         if len(buf) == 0:
             return Signal(action="none", reason="No candles yet")
 
         # Once a trade has been taken, don't restart unless reentry is allowed
         if self._trade_taken and not self.config.reentry_allowed:
             return Signal(action="none", reason="ORB session complete — no re-entry")
+
+        # Check max ranges cap
+        if self._ranges_built >= self.config.max_ranges_per_session:
+            return Signal(action="none", reason="Max ranges reached for session")
 
         if not self._orb_started:
             self._orb_started = True
@@ -109,14 +127,15 @@ class ORBStrategyEngine:
 
         # Check if range window is complete
         if self._range_candle_count >= self.config.range_minutes:
+            self._ranges_built += 1
             logger.info(
-                "ORB range set: high=%.2f, low=%.2f (%d candles)",
-                self._range_high, self._range_low, self._range_candle_count,
+                "ORB range #%d set: high=%.2f, low=%.2f (%d candles)",
+                self._ranges_built, self._range_high, self._range_low, self._range_candle_count,
             )
             self._armed_bar_count = 0
             return Signal(
                 action="range_set",
-                reason=f"Opening range: {self._range_low:.2f}-{self._range_high:.2f}",
+                reason=f"Opening range #{self._ranges_built}: {self._range_low:.2f}-{self._range_high:.2f}",
             )
 
         return Signal(action="none", reason="Building opening range")
@@ -131,7 +150,18 @@ class ORBStrategyEngine:
 
         # Check expiry
         if self._armed_bar_count > self.config.max_wait_minutes:
-            return Signal(action="range_expired", reason="ORB range expired — no breakout")
+            # Re-range if allowed and under the cap
+            if (
+                self.config.re_range_on_expiry
+                and self._ranges_built < self.config.max_ranges_per_session
+            ):
+                logger.info(
+                    "ORB range #%d expired — re-ranging (%d/%d max)",
+                    self._ranges_built, self._ranges_built, self.config.max_ranges_per_session,
+                )
+                self.re_range()
+                return Signal(action="range_expired_rerange", reason="ORB range expired — building new range")
+            return Signal(action="range_expired", reason="ORB range expired — no breakout (max ranges reached)")
 
         range_height = self._range_high - self._range_low
         if range_height <= 0:

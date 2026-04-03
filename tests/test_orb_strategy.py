@@ -145,13 +145,26 @@ class TestORBBreakout:
         sig = engine.evaluate(FSMState.ORB_ARMED, buf)
         assert sig.action == "none"
 
-    def test_range_expired_after_max_wait(self):
-        """Should expire back to FLAT after max_wait_minutes."""
-        config = ORBConfig(range_minutes=3, max_wait_minutes=5)
+    def test_range_expired_rerange(self):
+        """Should re-range after max_wait_minutes when re_range_on_expiry is True."""
+        config = ORBConfig(range_minutes=3, max_wait_minutes=5, re_range_on_expiry=True)
         engine = self._armed_engine(config=config)
         buf = CandleBuffer(maxlen=200)
 
-        # Feed 6 candles within range (exceeds max_wait=5)
+        for i in range(6):
+            buf.append(_make_candle(5200, high=5205, low=5195, minutes_offset=i))
+            sig = engine.evaluate(FSMState.ORB_ARMED, buf)
+            if i < 5:
+                assert sig.action == "none"
+            else:
+                assert sig.action == "range_expired_rerange"
+
+    def test_range_expired_no_rerange(self):
+        """Should expire without re-range when disabled."""
+        config = ORBConfig(range_minutes=3, max_wait_minutes=5, re_range_on_expiry=False)
+        engine = self._armed_engine(config=config)
+        buf = CandleBuffer(maxlen=200)
+
         for i in range(6):
             buf.append(_make_candle(5200, high=5205, low=5195, minutes_offset=i))
             sig = engine.evaluate(FSMState.ORB_ARMED, buf)
@@ -159,6 +172,18 @@ class TestORBBreakout:
                 assert sig.action == "none"
             else:
                 assert sig.action == "range_expired"
+
+    def test_max_ranges_cap(self):
+        """Should stop re-ranging after max_ranges_per_session."""
+        config = ORBConfig(range_minutes=3, max_wait_minutes=5, re_range_on_expiry=True, max_ranges_per_session=2)
+        engine = self._armed_engine(config=config)
+        engine._ranges_built = 2
+        buf = CandleBuffer(maxlen=200)
+
+        for i in range(6):
+            buf.append(_make_candle(5200, high=5205, low=5195, minutes_offset=i))
+            sig = engine.evaluate(FSMState.ORB_ARMED, buf)
+        assert sig.action == "range_expired"
 
     def test_stop_at_midpoint(self):
         """Stop mode 'midpoint' should set stop at range midpoint."""
@@ -340,8 +365,10 @@ class TestORBConfigValidation:
         assert config.stop_mode == "opposite"
         assert config.volume_confirmation is False
         assert config.volume_threshold_pct == 120.0
-        assert config.max_wait_minutes == 60
+        assert config.max_wait_minutes == 120
         assert config.reentry_allowed is True
+        assert config.re_range_on_expiry is True
+        assert config.max_ranges_per_session == 3
 
     def test_custom_config(self):
         config = ORBConfig(

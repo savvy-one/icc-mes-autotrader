@@ -5,7 +5,8 @@ expiration_mode: "WEEKLY"    # ZERO_DTE, WEEKLY, MONTHLY
 premium_stop_pct: 0.35       # Exit if premium drops 35% (tighter to cut losers faster)
 premium_trail_trigger_pct: 0.15  # Activate trail after 15% gain (was 20%)
 premium_trail_drop_pct: 0.15     # Exit on 15% drop from peak
-put_confidence_boost: 0.15       # Extra confidence required for PUT entries
+put_confidence_boost: 0.20       # Extra confidence required for PUT entries
+min_premium: 0.50                # Reject contracts < $0.50 (commission eats the edge)
 expiration_guard_minutes: 15  # Auto-exit N min before close on exp day
 quantity: 1
 option_commission_per_side: 1.50

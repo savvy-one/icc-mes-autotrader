@@ -406,6 +406,7 @@ class OptionChainResolver:
         expiration_mode: str = "ZERO_DTE",
         expiration_guard_minutes: int = 15,
         max_premium: float = 0.0,
+        min_premium: float = 0.0,
         otm_fallback: bool = True,
     ) -> None:
         self._provider = provider
@@ -416,6 +417,7 @@ class OptionChainResolver:
         self._multiplier = MULTIPLIERS.get(underlying, 5.0)
         self._last_resolved: OptionContract | None = None
         self._max_premium = max_premium
+        self._min_premium = min_premium
         self._otm_fallback = otm_fallback
 
     # -- public API ---------------------------------------------------------
@@ -537,6 +539,14 @@ class OptionChainResolver:
             logger.warning(
                 "Zero/negative premium for %s %s %.0f exp=%s — skipping",
                 self._underlying, option_type, selected["strike"], expiration,
+            )
+            return None
+
+        # Min premium floor — reject contracts too cheap (commission eats the edge)
+        if self._min_premium > 0 and premium < self._min_premium:
+            logger.warning(
+                "Premium $%.2f < min $%.2f for %s — skipping (too cheap)",
+                premium, self._min_premium, self._underlying,
             )
             return None
 
