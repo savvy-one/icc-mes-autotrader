@@ -112,16 +112,16 @@ class OptionsConfig(BaseModel):
     tickers: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "NVDA", "AMZN", "TSLA", "META", "MSFT"])
     strike_mode: str = "ATM"  # ATM, OTM_1, DELTA
     expiration_mode: str = "MONTHLY"  # ZERO_DTE, WEEKLY, MONTHLY
-    premium_stop_pct: float = 0.35  # 35% — tighter stop to cut losers faster
-    premium_trail_trigger_pct: float = 0.15  # Activate trail stop after 15% gain (was 20%)
+    premium_stop_pct: float = 0.30  # 30% — tighter stop to cut losers faster
+    premium_trail_trigger_pct: float = 0.15  # Activate trail stop after 15% gain
     premium_trail_drop_pct: float = 0.15  # Exit when premium drops 15% from peak
-    put_confidence_boost: float = 0.20  # Extra confidence required for PUT entries vs CALLs
-    min_premium: float = 0.50  # Reject contracts with premium < $0.50 (commission eats the edge)
+    put_confidence_boost: float = 0.30  # Extra confidence required for PUT entries vs CALLs
+    min_premium: float = 0.75  # Reject contracts < $0.75 (need margin for commission + movement)
     expiration_guard_minutes: int = 15
     quantity: int = 1
     option_commission_per_side: float = 1.50
     cash_settled_underlyings: list[str] = ["SPX"]  # No T+1 delay for these
-    max_premium: float = 2.00  # Reject contracts with premium > $2.00 (limits risk to $200/contract)
+    max_premium: float = 1.50  # Reject contracts with premium > $1.50 (caps per-trade risk)
     otm_fallback: bool = True  # If ATM premium > max_premium, try OTM_1 strike
 
 
