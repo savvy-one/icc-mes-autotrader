@@ -560,7 +560,7 @@ class OptionChainResolver:
                 otm = self._select_strike(candidates, strike_price, option_type, force_mode="OTM_1")
                 if otm is not None:
                     otm_premium = otm.get("ask") or otm.get("last") or 0.0
-                    if 0 < otm_premium <= self._max_premium:
+                    if otm_premium >= self._min_premium and otm_premium <= self._max_premium:
                         selected = otm
                         premium = otm_premium
                         logger.info(
@@ -569,8 +569,8 @@ class OptionChainResolver:
                         )
                     else:
                         logger.warning(
-                            "OTM premium $%.2f still exceeds max $%.2f — skipping %s",
-                            otm_premium, self._max_premium, self._underlying,
+                            "OTM premium $%.2f outside range $%.2f-$%.2f — skipping %s",
+                            otm_premium, self._min_premium, self._max_premium, self._underlying,
                         )
                         return None
                 else:
