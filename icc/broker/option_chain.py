@@ -416,6 +416,7 @@ class OptionChainResolver:
         self._expiration_guard_min = expiration_guard_minutes
         self._multiplier = MULTIPLIERS.get(underlying, 5.0)
         self._last_resolved: OptionContract | None = None
+        self._last_failure_reason: str | None = None
         self._max_premium = max_premium
         self._min_premium = min_premium
         self._otm_fallback = otm_fallback
@@ -440,6 +441,7 @@ class OptionChainResolver:
         """
         now = now or datetime.now()
         option_type = "CALL" if direction == "long" else "PUT"
+        self._last_failure_reason = None
 
         # 0. Get the option underlying's actual price for strike selection
         #    (current_price may be from the signal feed, e.g. MES, while
@@ -464,6 +466,9 @@ class OptionChainResolver:
         # 1. Resolve expiration
         expiration = self._resolve_expiration(now)
         if expiration is None:
+            self._last_failure_reason = (
+                f"no suitable expiration ({self._expiration_mode})"
+            )
             logger.warning(
                 "No suitable expiration for %s mode=%s",
                 self._underlying,
@@ -473,6 +478,9 @@ class OptionChainResolver:
 
         # 2. Expiration guard (check BEFORE afternoon override — near-close blocks all)
         if self._is_too_close_to_expiry(expiration, now):
+            self._last_failure_reason = (
+                f"expiration guard ({expiration} within {self._expiration_guard_min}min of close)"
+            )
             logger.info(
                 "Expiration guard: %s within %d-min window",
                 expiration,
@@ -516,6 +524,7 @@ class OptionChainResolver:
         else:
             chain = self._provider.get_option_chain(self._underlying, expiration)
         if not chain:
+            self._last_failure_reason = f"empty chain (exp={expiration})"
             logger.warning("Empty chain for %s exp=%s", self._underlying, expiration)
             return None
 
@@ -524,18 +533,25 @@ class OptionChainResolver:
             c for c in chain if c.get("option_type", "").upper() == option_type
         ]
         if not candidates:
+            self._last_failure_reason = f"no {option_type} options in chain"
             logger.warning("No %s options in chain", option_type)
             return None
 
         # 5. Select strike
         selected = self._select_strike(candidates, strike_price, option_type)
         if selected is None:
+            self._last_failure_reason = (
+                f"no {option_type} strike found near {strike_price:.2f}"
+            )
             logger.warning("No strike found for %s @ %.2f", option_type, strike_price)
             return None
 
         # 6. Build contract
         premium = selected.get("ask") or selected.get("last") or 0.0
         if premium <= 0:
+            self._last_failure_reason = (
+                f"zero/negative premium for {option_type} {selected['strike']:.0f}"
+            )
             logger.warning(
                 "Zero/negative premium for %s %s %.0f exp=%s — skipping",
                 self._underlying, option_type, selected["strike"], expiration,
@@ -544,6 +560,9 @@ class OptionChainResolver:
 
         # Min premium floor — reject contracts too cheap (commission eats the edge)
         if self._min_premium > 0 and premium < self._min_premium:
+            self._last_failure_reason = (
+                f"premium ${premium:.2f} < min ${self._min_premium:.2f} (too cheap)"
+            )
             logger.warning(
                 "Premium $%.2f < min $%.2f for %s — skipping (too cheap)",
                 premium, self._min_premium, self._underlying,
@@ -568,18 +587,26 @@ class OptionChainResolver:
                             option_type, selected["strike"], premium,
                         )
                     else:
+                        self._last_failure_reason = (
+                            f"OTM premium ${otm_premium:.2f} outside "
+                            f"${self._min_premium:.2f}-${self._max_premium:.2f}"
+                        )
                         logger.warning(
                             "OTM premium $%.2f outside range $%.2f-$%.2f — skipping %s",
                             otm_premium, self._min_premium, self._max_premium, self._underlying,
                         )
                         return None
                 else:
+                    self._last_failure_reason = "no OTM strike available"
                     logger.warning(
                         "No OTM strike available for %s — skipping",
                         self._underlying,
                     )
                     return None
             else:
+                self._last_failure_reason = (
+                    f"premium ${premium:.2f} > max ${self._max_premium:.2f}"
+                )
                 logger.warning(
                     "Premium $%.2f > max $%.2f for %s — skipping",
                     premium, self._max_premium, self._underlying,
@@ -612,6 +639,11 @@ class OptionChainResolver:
     def last_resolved(self) -> OptionContract | None:
         """Most recently resolved contract (for snapshot / logging)."""
         return self._last_resolved
+
+    @property
+    def last_failure_reason(self) -> str | None:
+        """Reason the most recent resolve() returned None (None on success)."""
+        return self._last_failure_reason
 
     # -- internals ----------------------------------------------------------
 

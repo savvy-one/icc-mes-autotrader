@@ -330,8 +330,12 @@ class Trader:
         # Resolve option contract (if OPTIONS mode) and compute trade cost
         contract, trade_cost = self._resolve_option_contract(signal, candle)
         if self.config.options.instrument_type == "OPTIONS" and contract is None:
-            print("[ICC] Option resolve FAILED — no suitable contract (will retry)", flush=True)
-            logger.info("Option resolve failed — no suitable contract")
+            reason = (
+                getattr(self._option_resolver, "last_failure_reason", None)
+                or "no suitable contract"
+            )
+            print(f"[ICC] Option resolve FAILED — {reason} (will retry)", flush=True)
+            logger.info("Option resolve failed — %s", reason)
             # Don't transition FSM — stay in ORB_ARMED to retry next candle
             return
         if contract is not None:

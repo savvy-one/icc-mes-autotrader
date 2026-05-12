@@ -59,6 +59,22 @@ class TestRiskEngine:
         assert not allowed
         assert "consecutive losses" in reason
 
+    def test_scratch_loss_not_counted(self, engine):
+        engine.update_pnl(-5.0)
+        engine.update_pnl(-5.0)
+        assert engine.state.consecutive_losses == 0
+
+    def test_mixed_scratch_and_real_loss(self, engine):
+        # Stay under the $100 daily kill threshold so consecutive-losses gate fires first
+        engine.update_pnl(-30.0)
+        engine.update_pnl(-3.0)   # scratch — doesn't count
+        engine.update_pnl(-30.0)
+        engine.state.last_loss_time = time.time() - 999
+        allowed, reason = engine.can_open_trade()
+        assert not allowed
+        assert "consecutive losses" in reason
+        assert engine.state.consecutive_losses == 2
+
     def test_cooldown_blocks(self, engine):
         engine.update_pnl(-10.0)
         # Consecutive losses = 1, under max, but cooldown active

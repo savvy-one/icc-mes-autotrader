@@ -65,6 +65,7 @@ class RiskConfig(BaseModel):
     slippage_ticks: int = SLIPPAGE_TICKS
     large_loss_threshold: float = 100.0  # Dollar amount that counts as a "large loss"
     large_loss_cooldown_seconds: int = 600  # 10-minute cooldown after large loss
+    scratch_loss_threshold: float = 10.0  # Losses below this don't count toward consecutive_losses
 
 
 class BrokerConfig(BaseModel):
@@ -123,6 +124,15 @@ class OptionsConfig(BaseModel):
     cash_settled_underlyings: list[str] = ["SPX"]  # No T+1 delay for these
     max_premium: float = 1.50  # Reject contracts with premium > $1.50 (caps per-trade risk)
     otm_fallback: bool = True  # If ATM premium > max_premium, try OTM_1 strike
+    per_ticker_max_premium: dict[str, float] = Field(default_factory=lambda: {
+        "SPY":  2.50,
+        "QQQ":  2.50,
+        "TSLA": 2.50,
+        "META": 2.50,
+        "NVDA": 1.50,
+        "AMZN": 1.50,
+        "MSFT": 2.00,
+    })
 
 
 class ORBConfig(BaseModel):

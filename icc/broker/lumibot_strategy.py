@@ -136,13 +136,16 @@ class ICCLumibotStrategy(Strategy):
                     OptionChainResolver,
                 )
                 option_provider = LumibotOptionChainProvider(self)
+                ticker_max_premium = config.options.per_ticker_max_premium.get(
+                    ticker, config.options.max_premium
+                )
                 option_chain_resolver = OptionChainResolver(
                     provider=option_provider,
                     underlying=ticker,
                     strike_mode=config.options.strike_mode,
                     expiration_mode=config.options.expiration_mode,
                     expiration_guard_minutes=config.options.expiration_guard_minutes,
-                    max_premium=config.options.max_premium,
+                    max_premium=ticker_max_premium,
                     min_premium=config.options.min_premium,
                     otm_fallback=config.options.otm_fallback,
                 )

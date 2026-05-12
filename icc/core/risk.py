@@ -36,8 +36,9 @@ class RiskEngine:
     def update_pnl(self, pnl_change: float) -> None:
         self.state.daily_pnl += pnl_change
         if pnl_change < 0:
-            self.state.consecutive_losses += 1
             self.state.last_loss_time = time.time()
+            if abs(pnl_change) >= self.config.scratch_loss_threshold:
+                self.state.consecutive_losses += 1
             if abs(pnl_change) >= self.config.large_loss_threshold:
                 self.state.last_large_loss_time = time.time()
         else:
