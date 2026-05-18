@@ -126,8 +126,8 @@ class OptionsConfig(BaseModel):
     otm_fallback: bool = True  # If ATM premium > max_premium, try OTM_1 strike
     per_ticker_max_premium: dict[str, float] = Field(default_factory=lambda: {
         "SPY":  2.50,
-        "QQQ":  2.50,
-        "TSLA": 2.50,
+        "QQQ":  3.50,
+        "TSLA": 3.50,
         "META": 2.50,
         "NVDA": 1.50,
         "AMZN": 1.50,
