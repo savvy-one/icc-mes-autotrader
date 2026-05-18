@@ -1,11 +1,20 @@
-"""RiskEngine — kill switch, limits, cooldown."""
+"""RiskEngine — kill switch, limits, cooldown.
+
+State persists across process restarts when a db_session is provided.
+Without a db_session, behavior is identical to the in-memory original.
+"""
 
 from __future__ import annotations
 
+import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Optional
 
 from icc.config import RiskConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,18 +29,100 @@ class RiskState:
     last_large_loss_time: float | None = None
 
 
-class RiskEngine:
-    """Gate-style risk engine: vetoes actions, never initiates (except kill switch)."""
+def _today_et() -> str:
+    """Current trading date in ET as YYYY-MM-DD. Falls back to local date if pytz missing."""
+    try:
+        import pytz
+        return datetime.now(pytz.timezone("US/Eastern")).date().isoformat()
+    except Exception:
+        return date.today().isoformat()
 
-    def __init__(self, config: RiskConfig, settlement_tracker=None):
+
+class RiskEngine:
+    """Gate-style risk engine: vetoes actions, never initiates (except kill switch).
+
+    When constructed with a db_session, state is loaded from the risk_state table
+    keyed by today's ET trading date and persisted on every mutation. This keeps
+    daily_pnl, consecutive_losses, the killed flag, etc. alive across process
+    restarts within the same trading day.
+    """
+
+    def __init__(
+        self,
+        config: RiskConfig,
+        settlement_tracker=None,
+        db_session=None,
+        today_provider=None,
+    ):
         self.config = config
         self.state = RiskState()
         self._kill_cap = config.account_size * config.daily_loss_kill_pct
         self._prekill_cap = config.account_size * config.daily_loss_prekill_pct
         self._settlement = settlement_tracker
+        self._db = db_session
+        self._today_provider = today_provider or _today_et
+        # open_positions is intentionally NOT persisted — it's broker-derived
+        # and re-set on startup. Everything else hydrates from today's row.
+        self._load_state()
+
+    # -- persistence --------------------------------------------------------
+
+    def _today(self) -> str:
+        return self._today_provider()
+
+    def _load_state(self) -> None:
+        if self._db is None:
+            return
+        try:
+            from icc.db.models import RiskStateRecord
+            row = self._db.get(RiskStateRecord, self._today())
+            if row is not None:
+                self.state.daily_pnl = row.daily_pnl
+                self.state.trade_count = row.trade_count
+                self.state.consecutive_losses = row.consecutive_losses
+                self.state.last_loss_time = row.last_loss_time
+                self.state.last_large_loss_time = row.last_large_loss_time
+                self.state.killed = bool(row.killed)
+                self.state.pre_kill_triggered = bool(row.pre_kill_triggered)
+                logger.info(
+                    "RiskState hydrated from DB for %s: pnl=%.2f trades=%d "
+                    "consecutive_losses=%d killed=%s",
+                    self._today(), self.state.daily_pnl, self.state.trade_count,
+                    self.state.consecutive_losses, self.state.killed,
+                )
+        except Exception as e:
+            logger.warning("RiskState load failed (will start fresh): %s", e)
+
+    def _persist(self) -> None:
+        if self._db is None:
+            return
+        try:
+            from icc.db.models import RiskStateRecord
+            today = self._today()
+            row = self._db.get(RiskStateRecord, today)
+            if row is None:
+                row = RiskStateRecord(trading_date=today)
+                self._db.add(row)
+            row.daily_pnl = self.state.daily_pnl
+            row.trade_count = self.state.trade_count
+            row.consecutive_losses = self.state.consecutive_losses
+            row.last_loss_time = self.state.last_loss_time
+            row.last_large_loss_time = self.state.last_large_loss_time
+            row.killed = self.state.killed
+            row.pre_kill_triggered = self.state.pre_kill_triggered
+            self._db.commit()
+        except Exception as e:
+            logger.warning("RiskState persist failed: %s", e)
+            try:
+                self._db.rollback()
+            except Exception:
+                pass
+
+    # -- mutators -----------------------------------------------------------
 
     def reset_session(self) -> None:
         self.state = RiskState()
+        self._persist()
 
     def update_pnl(self, pnl_change: float) -> None:
         self.state.daily_pnl += pnl_change
@@ -43,24 +134,31 @@ class RiskEngine:
                 self.state.last_large_loss_time = time.time()
         else:
             self.state.consecutive_losses = 0
+        self._persist()
 
     def record_trade(self) -> None:
         self.state.trade_count += 1
+        self._persist()
 
     def set_open_positions(self, count: int) -> None:
+        # Not persisted — broker-derived transient state
         self.state.open_positions = count
 
     def check_kill_switch(self) -> bool:
         """Returns True if kill switch should activate."""
         if abs(self.state.daily_pnl) >= self._kill_cap and self.state.daily_pnl < 0:
-            self.state.killed = True
+            if not self.state.killed:
+                self.state.killed = True
+                self._persist()
             return True
         return False
 
     def check_pre_kill(self) -> bool:
         """Returns True if pre-kill warning threshold breached."""
         if abs(self.state.daily_pnl) >= self._prekill_cap and self.state.daily_pnl < 0:
-            self.state.pre_kill_triggered = True
+            if not self.state.pre_kill_triggered:
+                self.state.pre_kill_triggered = True
+                self._persist()
             return True
         return False
 

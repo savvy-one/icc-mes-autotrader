@@ -112,3 +112,18 @@ class CandleRecord(Base):
     low: Mapped[float] = mapped_column(Float)
     close: Mapped[float] = mapped_column(Float)
     volume: Mapped[int] = mapped_column(Integer)
+
+
+class RiskStateRecord(Base):
+    """Persisted RiskEngine state per trading date — survives process restarts."""
+    __tablename__ = "risk_state"
+
+    trading_date: Mapped[str] = mapped_column(String(10), primary_key=True)  # YYYY-MM-DD (ET)
+    daily_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    trade_count: Mapped[int] = mapped_column(Integer, default=0)
+    consecutive_losses: Mapped[int] = mapped_column(Integer, default=0)
+    last_loss_time: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_large_loss_time: Mapped[float | None] = mapped_column(Float, nullable=True)
+    killed: Mapped[bool] = mapped_column(Boolean, default=False)
+    pre_kill_triggered: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

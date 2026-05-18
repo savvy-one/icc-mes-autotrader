@@ -111,9 +111,15 @@ class ICCLumibotStrategy(Strategy):
             ra_config = RAConfig(**config.research.model_dump())
             research_agent = ResearchAgent(ra_config)
 
-        # Shared risk engine across all tickers (one account, shared cooldowns)
+        # Shared risk engine across all tickers (one account, shared cooldowns).
+        # db_session enables RiskState persistence across process restarts so the
+        # kill switch / daily PnL survive a launchd respawn mid-session.
         from icc.core.risk import RiskEngine
-        shared_risk = RiskEngine(config.risk, settlement_tracker=settlement_tracker)
+        shared_risk = RiskEngine(
+            config.risk,
+            settlement_tracker=settlement_tracker,
+            db_session=db_session,
+        )
 
         # Create one Trader per ticker
         self._traders: dict[str, Trader] = {}
