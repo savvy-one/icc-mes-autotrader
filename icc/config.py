@@ -110,10 +110,10 @@ class ResearchConfig(BaseModel):
 class OptionsConfig(BaseModel):
     instrument_type: str = "FUTURES"  # FUTURES or OPTIONS
     underlying: str = "MES"  # MES or SPX
-    tickers: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "NVDA", "AMZN", "TSLA", "META", "MSFT"])
+    tickers: list[str] = Field(default_factory=lambda: ["SPY", "NVDA", "TSLA", "META", "MSFT"])
     strike_mode: str = "ATM"  # ATM, OTM_1, DELTA
     expiration_mode: str = "MONTHLY"  # ZERO_DTE, WEEKLY, MONTHLY
-    premium_stop_pct: float = 0.30  # 30% — tighter stop to cut losers faster
+    premium_stop_pct: float = 0.20  # 20% — May 2026 analysis: every 30% premium_stop exit was a -$59 avg loser
     premium_trail_trigger_pct: float = 0.15  # Activate trail stop after 15% gain
     premium_trail_drop_pct: float = 0.15  # Exit when premium drops 15% from peak
     put_confidence_boost: float = 0.30  # Extra confidence required for PUT entries vs CALLs
