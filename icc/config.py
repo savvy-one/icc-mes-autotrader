@@ -128,8 +128,8 @@ class OptionsConfig(BaseModel):
         "SPY":  2.50,
         "QQQ":  3.50,
         "TSLA": 3.50,
-        "META": 2.50,
-        "NVDA": 1.50,
+        "META": 3.50,
+        "NVDA": 3.50,
         "AMZN": 1.50,
         "MSFT": 2.00,
     })
