@@ -2,7 +2,7 @@ instrument_type: "FUTURES"   # FUTURES or OPTIONS
 underlying: "MES"            # MES, SPX, SPY, ES
 strike_mode: "ATM"           # ATM, OTM_1, DELTA
 expiration_mode: "WEEKLY"    # ZERO_DTE, WEEKLY, MONTHLY
-premium_stop_pct: 0.30       # Exit if premium drops 30%
+premium_stop_pct: 0.20       # Exit if premium drops 20% (was 30%; May 2026 data: every premium_stop exit was a loser, avg -$59)
 premium_trail_trigger_pct: 0.15  # Activate trail after 15% gain
 premium_trail_drop_pct: 0.15     # Exit on 15% drop from peak
 put_confidence_boost: 0.30       # Extra confidence required for PUT entries
